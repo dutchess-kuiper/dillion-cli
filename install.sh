@@ -36,6 +36,7 @@ curl -fSL "$URL" -o "$TMP"
 chmod +x "$TMP"
 
 # Install
+mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
 if [ -w "$INSTALL_DIR" ]; then
   mv "$TMP" "$INSTALL_DIR/$BINARY_NAME"
 else
