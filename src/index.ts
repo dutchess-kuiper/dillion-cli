@@ -13,6 +13,7 @@ Usage: dillion <command> [options]
 
 Commands:
   auth <api-key> [--url=...]   Save API credentials
+  update                       Update to latest version
   health                       Check server status
 
   search <query> -p <pid>      Hybrid search documents
@@ -42,6 +43,10 @@ async function main() {
     case "auth": {
       const { authCommand } = await import("./commands/auth");
       return authCommand(rest);
+    }
+    case "update": {
+      const { updateCommand } = await import("./commands/update");
+      return updateCommand();
     }
     case "health": {
       const { healthCommand } = await import("./commands/health");
