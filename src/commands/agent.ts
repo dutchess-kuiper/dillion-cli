@@ -32,9 +32,12 @@ export async function agentAskCommand(args: string[]) {
   }
 
   if (data.sources.length) {
-    console.log(`\nSources: ${data.sources.length}`);
+    console.log(`\nSources:`);
+    for (const s of data.sources) {
+      console.log(`  - ${s.collection} ${s.objectId}`);
+    }
   }
-  console.log(`\nTime: ${data.totalTime}ms`);
+  console.log(`\nTime: ${Math.round(data.totalTime)}ms | ${data.usage.totalTokens} tokens`);
 }
 
 export async function agentSearchCommand(args: string[]) {

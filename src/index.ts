@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -20,7 +20,7 @@ async function checkForUpdate(command: string | undefined) {
       const lastCheck = parseInt(await file.text());
       if (Date.now() - lastCheck < CHECK_INTERVAL) return;
     }
-  } catch {}
+  } catch { }
 
   try {
     const res = await fetch("https://api.github.com/repos/dutchess-kuiper/dillion-cli/releases/latest", {
@@ -117,7 +117,6 @@ async function main() {
       }
       console.error("Usage: dillion files <search|download>");
       process.exit(1);
-      break;
     }
     case "jobs": {
       if (subcommand === "list") {
@@ -130,7 +129,6 @@ async function main() {
       }
       console.error("Usage: dillion jobs <list|get>");
       process.exit(1);
-      break;
     }
     case "agent": {
       if (subcommand === "ask") {
@@ -143,7 +141,6 @@ async function main() {
       }
       console.error("Usage: dillion agent <ask|search>");
       process.exit(1);
-      break;
     }
     case "filters": {
       const { filtersCommand } = await import("./commands/filters");
