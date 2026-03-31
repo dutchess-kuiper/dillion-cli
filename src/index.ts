@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+const VERSION = "0.1.0";
+
 const args = process.argv.slice(2);
 const command = args[0];
 const subcommand = args[1];
@@ -36,6 +38,11 @@ Flags:
 async function main() {
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP.trim());
+    process.exit(0);
+  }
+
+  if (command === "--version" || command === "-v" || command === "version") {
+    console.log(VERSION);
     process.exit(0);
   }
 
