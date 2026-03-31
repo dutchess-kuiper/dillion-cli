@@ -1,0 +1,20 @@
+{
+  "name": "dillion-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "dillion": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "build": "bun build --compile src/index.ts --outfile dist/dillion-darwin-arm64 --target=bun-darwin-arm64 && bun build --compile src/index.ts --outfile dist/dillion-darwin-x64 --target=bun-darwin-x64 && bun build --compile src/index.ts --outfile dist/dillion-linux-x64 --target=bun-linux-x64 && bun build --compile src/index.ts --outfile dist/dillion-linux-arm64 --target=bun-linux-arm64",
+    "release": "bun run build && gh release create v$npm_package_version dist/dillion-darwin-arm64 dist/dillion-darwin-x64 dist/dillion-linux-x64 dist/dillion-linux-arm64 --title v$npm_package_version --generate-notes"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
