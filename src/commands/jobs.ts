@@ -1,48 +1,149 @@
 import { api } from "../api";
 import { parseFlags } from "../flags";
 
+const JOBS_LIST_HELP = `
+Usage: dillion jobs list --project <id> [options]
+
+Filters:
+  --status <s>              Filter by status (pending, processing, completed, failed)
+  --search <text>           Search file names and descriptions
+  --archived                Show only archived jobs
+  --tag <value>             Filter by tag (repeatable)
+  --category <value>        Filter by diligence category (repeatable)
+  --doc-type <value>        Filter by document type (repeatable)
+  --doc-category <value>    Filter by document category (repeatable)
+  --person <value>          Filter by person (repeatable)
+  --org <value>             Filter by organization (repeatable)
+  --location <value>        Filter by location (repeatable)
+  --flag <value>            Filter by inconsistency flag (repeatable)
+  --det-tag <value>         Filter by deterministic tag (repeatable)
+  --from <date>             Jobs created on or after date (YYYY-MM-DD)
+  --to <date>               Jobs created on or before date (YYYY-MM-DD)
+
+Pagination & sorting:
+  --limit <n>               Results per page (default: 50)
+  --offset <n>              Skip first n results
+  --all                     Fetch all pages
+  --sort <field>            Sort by: created_at, updated_at, file_name, status
+  --dir <asc|desc>          Sort direction (default: desc)
+
+Output:
+  --json                    Output raw JSON
+  --filters                 Show available filter values for the project
+`.trim();
+
 export async function jobsListCommand(args: string[]) {
-  const { flags } = parseFlags(args);
+  const { flags, arrayFlags } = parseFlags(args);
+
+  if (flags.help === "" || flags.h === "") {
+    console.log(JOBS_LIST_HELP);
+    return;
+  }
+
   const projectId = flags.project || flags.p;
-  const status = flags.status;
-  const search = flags.search;
-  const limit = flags.limit ? parseInt(flags.limit) : 50;
-  const offset = flags.offset ? parseInt(flags.offset) : 0;
   const json = flags.json !== undefined;
 
   if (!projectId) {
-    console.error("Usage: dillion jobs list --project <id>");
+    console.error(JOBS_LIST_HELP);
     process.exit(1);
   }
 
-  const data = await api("/jobs/list", {
-    method: "POST",
-    body: {
-      projectId,
-      ...(status && { status }),
-      ...(search && { search }),
-      limit,
-      offset,
-    },
-  });
+  // Show available filters for the project
+  if (flags.filters !== undefined) {
+    const facets = await api(`/filters/${projectId}`);
+    if (json) {
+      console.log(JSON.stringify(facets, null, 2));
+      return;
+    }
+    for (const [key, values] of Object.entries(facets)) {
+      const arr = values as string[];
+      if (arr.length === 0) continue;
+      console.log(`${key} (${arr.length}):`);
+      for (const v of arr) {
+        console.log(`  ${v}`);
+      }
+      console.log();
+    }
+    return;
+  }
+
+  const pageSize = flags.limit ? parseInt(flags.limit) : 50;
+  const offset = flags.offset ? parseInt(flags.offset) : 0;
+  const all = flags.all !== undefined;
+
+  // Helper to get array flag values (empty array if not set)
+  const arr = (key: string) => {
+    const vals = arrayFlags[key];
+    return vals && vals.length > 0 && vals[0] !== "" ? vals : undefined;
+  };
+
+  const body: Record<string, any> = {
+    projectId,
+    ...(flags.status && { status: flags.status }),
+    ...(flags.search && { search: flags.search }),
+    ...(flags.archived !== undefined && { archived: flags.archived !== "false" }),
+    ...(arr("tag") && { tags: arr("tag") }),
+    ...(arr("category") && { diligenceCategories: arr("category") }),
+    ...(arr("doc-type") && { documentTypes: arr("doc-type") }),
+    ...(arr("doc-category") && { documentCategories: arr("doc-category") }),
+    ...(arr("person") && { people: arr("person") }),
+    ...(arr("org") && { organizations: arr("org") }),
+    ...(arr("location") && { locations: arr("location") }),
+    ...(arr("flag") && { inconsistencyFlags: arr("flag") }),
+    ...(arr("det-tag") && { deterministicTags: arr("det-tag") }),
+    ...(flags.from && { dateFrom: flags.from }),
+    ...(flags.to && { dateTo: flags.to }),
+    ...(flags.sort && { sortBy: flags.sort }),
+    ...(flags.dir && { sortDir: flags.dir }),
+  };
+
+  const fetchPage = async (pageOffset: number) =>
+    api("/jobs/list", { method: "POST", body: { ...body, limit: pageSize, offset: pageOffset } });
+
+  if (all) {
+    let allJobs: any[] = [];
+    let currentOffset = 0;
+    let total = 0;
+
+    while (true) {
+      const data = await fetchPage(currentOffset);
+      total = data.total;
+      allJobs = allJobs.concat(data.jobs);
+      if (!data.hasMore) break;
+      currentOffset += pageSize;
+    }
+
+    if (json) {
+      console.log(JSON.stringify({ jobs: allJobs, total }, null, 2));
+      return;
+    }
+
+    console.log(`Total: ${total} jobs\n`);
+    for (const j of allJobs) {
+      const meta = j.metadata;
+      const cat = meta.document_category || "";
+      console.log(`${j.status.padEnd(10)} ${j.fileName}${cat ? ` [${cat}]` : ""}`);
+    }
+    return;
+  }
+
+  const data = await fetchPage(offset);
 
   if (json) {
     console.log(JSON.stringify(data, null, 2));
     return;
   }
 
-  console.log(`${data.total} jobs (showing ${data.jobs.length})\n`);
+  console.log(`Total: ${data.total} jobs (showing ${offset + 1}–${offset + data.jobs.length})\n`);
 
   for (const j of data.jobs) {
     const meta = j.metadata;
     const cat = meta.document_category || "";
-    console.log(
-      `${j.status.padEnd(10)} ${j.fileName}${cat ? ` [${cat}]` : ""}`
-    );
+    console.log(`${j.status.padEnd(10)} ${j.fileName}${cat ? ` [${cat}]` : ""}`);
   }
 
   if (data.hasMore) {
-    console.log(`\n... ${data.total - data.jobs.length} more (use --offset)`);
+    console.log(`\n... ${data.total - (offset + data.jobs.length)} more (use --offset ${offset + pageSize} or --all)`);
   }
 }
 

@@ -61,7 +61,9 @@ Commands:
   files search <query> -p <pid>  Search files by name
   files download <jobId...>    Get presigned download URLs
   filters <pid>                Get filter facets for a project
-  jobs list -p <pid>           List jobs with filters
+  jobs list -p <pid>           List jobs (use --help for all filters)
+  jobs list -p <pid> --filters Show available filter values
+  jobs list -p <pid> --all     Fetch all pages
   jobs get <job-id>            Get job details
   agent ask <query> -p <pid>   Ask agent a question
   agent search <query> -p <pid>  Agent retrieval search
