@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="dillion-ai/dillion-cli"
+REPO="dutchess-kuiper/dillion-cli"
 INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="dillion"
 
