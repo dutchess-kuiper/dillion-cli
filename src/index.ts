@@ -1,6 +1,45 @@
 #!/usr/bin/env bun
 
-const VERSION = "0.1.0";
+export const VERSION = "0.1.0";
+
+const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
+
+import { homedir } from "os";
+import { join } from "path";
+
+const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
+const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+
+async function checkForUpdate(command: string | undefined) {
+  if (command && SKIP_UPDATE_CHECK.has(command)) return;
+
+  // Only check once per day
+  try {
+    const file = Bun.file(UPDATE_CHECK_FILE);
+    if (await file.exists()) {
+      const lastCheck = parseInt(await file.text());
+      if (Date.now() - lastCheck < CHECK_INTERVAL) return;
+    }
+  } catch {}
+
+  try {
+    const res = await fetch("https://api.github.com/repos/dutchess-kuiper/dillion-cli/releases/latest", {
+      headers: { Accept: "application/vnd.github.v3+json" },
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!res.ok) return;
+    const data = await res.json() as { tag_name?: string };
+    const latest = data.tag_name?.replace(/^v/, "");
+
+    await Bun.write(UPDATE_CHECK_FILE, String(Date.now()));
+
+    if (latest && latest !== VERSION) {
+      console.error(`\nUpdate available: ${VERSION} → ${latest}  (run 'dillion update')`);
+    }
+  } catch {
+    // silently ignore
+  }
+}
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -50,6 +89,10 @@ async function main() {
     case "auth": {
       const { authCommand } = await import("./commands/auth");
       return authCommand(rest);
+    }
+    case "docs": {
+      const { docsCommand } = await import("./commands/docs");
+      return docsCommand();
     }
     case "update": {
       const { updateCommand } = await import("./commands/update");
@@ -117,4 +160,4 @@ async function main() {
   }
 }
 
-main();
+main().then(() => checkForUpdate(command));
