@@ -17,6 +17,7 @@ FILES
   dillion files download <id...> -p <pid> Download files locally
     --format <original|txt>               Download the original file or extracted text
     --out, -o <path>                      Save to file or directory
+  dillion files upload <path...> -p <pid> Upload one or more files (requires bastion upload proxy)
 
 JOBS
   dillion jobs list -p <pid>              List jobs in a project
@@ -25,6 +26,9 @@ JOBS
     --limit <n>                           Max results (default: 50)
     --offset <n>                          Pagination offset
   dillion jobs get <job-id>               Get job details and steps
+  dillion jobs wait <job-id>              Wait until job status is completed (ingestion done) or failed
+    --interval <sec>                      Poll interval (default: 5)
+    --timeout <sec>                       Max wait, 0 = none (default: 0)
 
 AGENT
   dillion agent ask <query> -p <pid>      Ask a question (generates answer)
@@ -58,6 +62,8 @@ EXAMPLES
   dillion obligations 8f3a... -o matobs.csv
   dillion agent ask "What are the key covenants?" -p 8f3a...
   dillion jobs list -p 8f3a... --json | jq '.jobs[].fileName'
+  dillion jobs wait <job-id> --timeout 7200
+  dillion files upload ./contract.pdf -p 8f3a... --json | jq -r .job_id | xargs -I{} dillion jobs wait {}
 `;
 
   console.log(docs.trim());

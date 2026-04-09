@@ -147,6 +147,102 @@ export async function jobsListCommand(args: string[]) {
   }
 }
 
+const JOBS_WAIT_HELP = `
+Usage: dillion jobs wait <job-id> [options]
+
+Poll until the job finishes ingestion (status becomes completed) or fails.
+
+  --interval <sec>   Seconds between polls (default: 5)
+  --timeout <sec>    Give up after this many seconds (default: 0 = no limit)
+  --json             Print final job payload as JSON on success
+
+Exits 0 when the job status is completed; exits 1 on failure or timeout.
+`.trim();
+
+type JobPayload = {
+  status: string;
+  fileName?: string;
+  steps?: Array<{ stepName: string; status: string; error?: string | null }>;
+};
+
+function terminalWaitState(data: JobPayload): "done" | "error" {
+  if (data.status === "failed") return "error";
+  const failedStep = data.steps?.find((s) => s.status === "failed");
+  if (failedStep) return "error";
+  if (data.status === "completed") return "done";
+  return "wait";
+}
+
+export async function jobsWaitCommand(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+
+  if (flags.help === "" || flags.h === "") {
+    console.log(JOBS_WAIT_HELP);
+    return;
+  }
+
+  const jobId = positional[0];
+  const json = flags.json !== undefined;
+  const intervalSec = flags.interval ? parseFloat(flags.interval) : 5;
+  const timeoutSec = flags.timeout !== undefined ? parseInt(flags.timeout, 10) : 0;
+
+  if (!jobId || jobId.startsWith("--")) {
+    console.error(JOBS_WAIT_HELP);
+    process.exit(1);
+  }
+  if (intervalSec <= 0 || Number.isNaN(intervalSec)) {
+    console.error("Error: --interval must be a positive number");
+    process.exit(1);
+  }
+  if (flags.timeout !== undefined && (Number.isNaN(timeoutSec) || timeoutSec < 0)) {
+    console.error("Error: --timeout must be a non-negative integer (0 = no limit)");
+    process.exit(1);
+  }
+
+  const started = Date.now();
+  const intervalMs = intervalSec * 1000;
+  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
+
+  for (;;) {
+    if (timeoutMs > 0 && Date.now() - started > timeoutMs) {
+      console.error(`Timeout after ${timeoutSec}s waiting for job ${jobId}`);
+      process.exit(1);
+    }
+
+    const data = (await api(`/jobs/${jobId}`)) as JobPayload;
+    const t = terminalWaitState(data);
+
+    if (!json) {
+      const indexStep = data.steps?.find((s) => s.stepName === "index");
+      const indexLabel = indexStep ? indexStep.status : "—";
+      console.error(
+        `[${new Date().toISOString()}] ${data.fileName ?? jobId}  job=${data.status}  index=${indexLabel}`
+      );
+    }
+
+    if (t === "done") {
+      if (json) {
+        console.log(JSON.stringify(data, null, 2));
+      } else {
+        console.error(`Done: job ${jobId} completed (ingestion finished).`);
+      }
+      return;
+    }
+    if (t === "error") {
+      const failed = data.steps?.find((s) => s.status === "failed");
+      const detail = failed?.error
+        ? `${failed.stepName}: ${failed.error}`
+        : data.status === "failed"
+          ? "job status failed"
+          : "a step failed";
+      console.error(`Job ${jobId} failed (${detail})`);
+      process.exit(1);
+    }
+
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
 export async function jobsGetCommand(args: string[]) {
   const jobId = args[0];
   const json = args.includes("--json");

@@ -1,8 +1,42 @@
 import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { api } from "../api";
+import { api, apiUpload } from "../api";
 import { getConfig } from "../config";
 import { parseFlags } from "../flags";
+
+export async function filesUploadCommand(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const projectId = flags.project || flags.p;
+  const json = flags.json !== undefined;
+
+  if (!projectId || positional.length === 0) {
+    console.error("Usage: dillion files upload <file> [...] --project <id>");
+    process.exit(1);
+  }
+
+  const results: Record<string, unknown>[] = [];
+
+  for (const filePath of positional) {
+    const data = await apiUpload(filePath, projectId);
+    results.push({ path: filePath, ...data });
+  }
+
+  if (json) {
+    console.log(JSON.stringify(positional.length === 1 ? results[0] : { uploads: results }, null, 2));
+    return;
+  }
+
+  for (const row of results) {
+    const jobId = row.job_id as string | undefined;
+    const fileName = row.file_name as string | undefined;
+    const localPath = row.path as string | undefined;
+    if (jobId) {
+      console.log(`${fileName ?? localPath ?? "?"}  job_id=${jobId}`);
+    } else {
+      console.log(JSON.stringify(row));
+    }
+  }
+}
 
 export async function filesSearchCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
@@ -52,22 +86,61 @@ export async function filesDownloadCommand(args: string[]) {
     process.exit(1);
   }
 
-  const results = await Promise.all(
-    positional.map((jobId) =>
-      downloadJob({
-        jobId,
-        projectId,
-        format,
-        out,
-        multiple: positional.length > 1,
-      })
-    )
-  );
-
   if (json) {
-    console.log(JSON.stringify({ files: results }, null, 2));
+    if (format === "original") {
+      const data = await api("/files/download", {
+        method: "POST",
+        body: { jobIds: positional, ...(projectId && { projectId }) },
+      });
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+
+    const files = await Promise.all(
+      positional.map((jobId) => fetchTextJob({ jobId, projectId }))
+    );
+    console.log(JSON.stringify({ files }, null, 2));
     return;
   }
+
+  if (format === "original") {
+    const results = await downloadOriginalJobs({
+      jobIds: positional,
+      projectId,
+      out,
+      multiple: positional.length > 1,
+    });
+
+    for (const result of results) {
+      if (result.error) {
+        console.error(`FAIL  ${result.jobId}: ${result.error}`);
+        continue;
+      }
+
+      console.log(`FILE  ${result.fileName}`);
+      console.log(`  ${result.savedTo}\n`);
+    }
+    return;
+  }
+
+  const results = await Promise.all(
+    positional.map(async (jobId) => {
+      try {
+        const file = await fetchTextJob({ jobId, projectId });
+        const savedTo = await saveDownload({
+          buffer: Buffer.from(file.text, "utf-8"),
+          fileName: file.fileName,
+          out,
+          multiple: positional.length > 1,
+        });
+
+        return { jobId: file.jobId, fileName: file.fileName, savedTo };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { jobId, error: message };
+      }
+    })
+  );
 
   for (const result of results) {
     if (result.error) {
@@ -75,116 +148,89 @@ export async function filesDownloadCommand(args: string[]) {
       continue;
     }
 
-    const label = result.format === "txt" ? "TXT" : "FILE";
-    console.log(`${label}  ${result.fileName}`);
+    console.log(`TXT   ${result.fileName}`);
     console.log(`  ${result.savedTo}\n`);
   }
 }
 
-async function downloadJob(options: {
-  jobId: string;
+async function downloadOriginalJobs(options: {
+  jobIds: string[];
   projectId?: string;
-  format: "original" | "txt";
   out?: string;
   multiple: boolean;
 }) {
-  const { jobId, projectId, format, out, multiple } = options;
+  const data = await api("/files/download", {
+    method: "POST",
+    body: { jobIds: options.jobIds, ...(options.projectId && { projectId: options.projectId }) },
+  });
 
-  try {
-    const direct = await tryDirectDownload({ jobId, projectId, format });
-    if (direct) {
-      const savedTo = await saveDownload({
-        buffer: direct.buffer,
-        fileName: direct.fileName,
-        out,
-        multiple,
-      });
+  const entries = Array.isArray(data.urls) ? data.urls : [];
+  return Promise.all(
+    entries.map(async (entry: any) => {
+      const jobId = String(entry.jobId || "");
 
-      return { jobId, format, fileName: direct.fileName, savedTo, source: "direct" as const };
-    }
+      try {
+        if (entry.error) {
+          throw new Error(entry.error);
+        }
+        if (!entry.url) {
+          throw new Error("Download URL missing from response");
+        }
 
-    if (format === "txt") {
-      throw new Error("Server does not support direct txt downloads yet.");
-    }
+        const res = await fetch(entry.url);
+        if (!res.ok) {
+          throw new Error(`Signed URL download failed with ${res.status}`);
+        }
 
-    const fallback = await downloadViaPresignedUrl({ jobId, projectId });
-    const savedTo = await saveDownload({
-      buffer: fallback.buffer,
-      fileName: fallback.fileName,
-      out,
-      multiple,
-    });
+        const fileName = sanitizeFileName(entry.fileName || defaultFileName(jobId, "original"));
+        const savedTo = await saveDownload({
+          buffer: Buffer.from(await res.arrayBuffer()),
+          fileName,
+          out: options.out,
+          multiple: options.multiple,
+        });
 
-    return { jobId, format, fileName: fallback.fileName, savedTo, source: "presigned" as const };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { jobId, format, error: message };
-  }
+        return { jobId, fileName, savedTo };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { jobId, error: message };
+      }
+    })
+  );
 }
 
-async function tryDirectDownload(options: {
+async function fetchTextJob(options: {
   jobId: string;
   projectId?: string;
-  format: "original" | "txt";
 }) {
   const { apiKey, baseUrl } = await getConfig();
-  const url = new URL(`${baseUrl}/files/download/${options.jobId}`);
+  const url = new URL(`${baseUrl}/files/text/${options.jobId}`);
   if (options.projectId) url.searchParams.set("projectId", options.projectId);
-  if (options.format !== "original") url.searchParams.set("format", options.format);
 
   const res = await fetch(url, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
+      Accept: "application/json",
     },
   });
 
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
-
-    if (res.status === 405) {
-      return null;
-    }
-
     if (res.status === 404 && body.includes("Cannot GET")) {
-      return null;
+      throw new Error("Server does not support txt downloads yet.");
     }
-
     throw new Error(parseErrorMessage(body, res.status));
   }
 
-  const fileName = getDownloadFileName(res) || defaultFileName(options.jobId, options.format);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return { fileName, buffer };
-}
-
-async function downloadViaPresignedUrl(options: {
-  jobId: string;
-  projectId?: string;
-}) {
-  const data = await api("/files/download", {
-    method: "POST",
-    body: { jobIds: [options.jobId], ...(options.projectId && { projectId: options.projectId }) },
-  });
-
-  const entry = data.urls?.[0];
-  if (!entry) {
-    throw new Error("No download URL returned");
-  }
-  if (entry.error) {
-    throw new Error(entry.error);
-  }
-  if (!entry.url) {
-    throw new Error("Download URL missing from response");
-  }
-
-  const res = await fetch(entry.url);
-  if (!res.ok) {
-    throw new Error(`Signed URL download failed with ${res.status}`);
+  const data = JSON.parse(body) as { jobId?: string; fileName?: string; text?: string };
+  if (typeof data.text !== "string") {
+    throw new Error("Text payload missing from response");
   }
 
   return {
-    fileName: sanitizeFileName(entry.fileName || defaultFileName(options.jobId, "original")),
-    buffer: Buffer.from(await res.arrayBuffer()),
+    jobId: data.jobId || options.jobId,
+    fileName: sanitizeFileName(data.fileName || defaultFileName(options.jobId, "txt")),
+    text: data.text,
   };
 }
 
@@ -231,23 +277,6 @@ function looksLikeDirectory(out: string) {
 
 function sanitizeFileName(name: string) {
   return basename(name).replace(/[/\\]/g, "_");
-}
-
-function getDownloadFileName(res: Response) {
-  const disposition = res.headers.get("content-disposition");
-  if (!disposition) return null;
-
-  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
-  if (utf8Match?.[1]) {
-    return sanitizeFileName(decodeURIComponent(utf8Match[1]));
-  }
-
-  const plainMatch = disposition.match(/filename="?([^"]+)"?/i);
-  if (plainMatch?.[1]) {
-    return sanitizeFileName(plainMatch[1]);
-  }
-
-  return null;
 }
 
 function defaultFileName(jobId: string, format: "original" | "txt") {

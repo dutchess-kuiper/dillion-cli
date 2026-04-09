@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.7";
+export const VERSION = "0.1.9";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -60,11 +60,13 @@ Commands:
   search <query> -p <pid>      Hybrid search documents
   files search <query> -p <pid>  Search files by name
   files download <jobId...>    Download files locally
+  files upload <file...> -p <pid>  Upload files to a project
   filters <pid>                Get filter facets for a project
   jobs list -p <pid>           List jobs (use --help for all filters)
   jobs list -p <pid> --filters Show available filter values
   jobs list -p <pid> --all     Fetch all pages
   jobs get <job-id>            Get job details
+  jobs wait <job-id>          Wait until ingestion completes (or fails)
   agent ask <query> -p <pid>   Ask agent a question
   agent search <query> -p <pid>  Agent retrieval search
   obligations <pid>            Download obligations CSV
@@ -117,7 +119,11 @@ async function main() {
         const { filesDownloadCommand } = await import("./commands/files");
         return filesDownloadCommand(subrest);
       }
-      console.error("Usage: dillion files <search|download>");
+      if (subcommand === "upload") {
+        const { filesUploadCommand } = await import("./commands/files");
+        return filesUploadCommand(subrest);
+      }
+      console.error("Usage: dillion files <search|download|upload>");
       process.exit(1);
     }
     case "jobs": {
@@ -129,7 +135,11 @@ async function main() {
         const { jobsGetCommand } = await import("./commands/jobs");
         return jobsGetCommand(subrest);
       }
-      console.error("Usage: dillion jobs <list|get>");
+      if (subcommand === "wait") {
+        const { jobsWaitCommand } = await import("./commands/jobs");
+        return jobsWaitCommand(subrest);
+      }
+      console.error("Usage: dillion jobs <list|get|wait>");
       process.exit(1);
     }
     case "agent": {
