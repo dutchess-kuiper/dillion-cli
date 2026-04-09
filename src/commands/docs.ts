@@ -14,7 +14,9 @@ SEARCH
 
 FILES
   dillion files search <query> -p <pid>   Search files by name
-  dillion files download <id...> -p <pid> Get presigned download URLs
+  dillion files download <id...> -p <pid> Download files locally
+    --format <original|txt>               Download the original file or extracted text
+    --out, -o <path>                      Save to file or directory
 
 JOBS
   dillion jobs list -p <pid>              List jobs in a project

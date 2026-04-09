@@ -59,7 +59,7 @@ Commands:
 
   search <query> -p <pid>      Hybrid search documents
   files search <query> -p <pid>  Search files by name
-  files download <jobId...>    Get presigned download URLs
+  files download <jobId...>    Download files locally
   filters <pid>                Get filter facets for a project
   jobs list -p <pid>           List jobs (use --help for all filters)
   jobs list -p <pid> --filters Show available filter values
@@ -73,7 +73,7 @@ Flags:
   --project, -p <id>   Project ID
   --json               Output raw JSON
   --limit <n>          Result limit
-  --out, -o <file>     Output file (obligations)
+  --out, -o <path>     Output file or directory
 `;
 
 async function main() {

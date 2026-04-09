@@ -39,10 +39,12 @@ Search files by name:
 dillion files search "agreement" -p <project-id>
 ```
 
-Get presigned download URLs:
+Download files locally:
 
 ```sh
 dillion files download <job-id-1> <job-id-2> -p <project-id>
+dillion files download <job-id> -p <project-id> --format txt
+dillion files download <job-id> -p <project-id> --out ./downloads/
 ```
 
 ### Jobs
@@ -107,7 +109,7 @@ dillion help         # Show help
 | `--project` | `-p` | Project ID |
 | `--json` | | Output raw JSON |
 | `--limit` | | Result limit |
-| `--out` | `-o` | Output file (obligations) |
+| `--out` | `-o` | Output file or directory |
 
 All commands support `--json` for raw JSON output, useful for piping:
 
