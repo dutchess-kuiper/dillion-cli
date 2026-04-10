@@ -16,13 +16,17 @@ PROJECTS
   dillion projects list [--name <text>]     List your projects (optional name filter)
   dillion projects create <name>           Create a project
     --description, -d <text>               Optional description
+  dillion project use <pid>                Save default project (omit -p on later commands)
+  dillion project show | dillion project clear
 
 FILES
   dillion files search <query> -p <pid>   Search files by name
   dillion files download <id...> -p <pid> Download files locally
     --format <original|txt>               Download the original file or extracted text
     --out, -o <path>                      Save to file or directory
-  dillion files upload <path...> -p <pid> Upload one or more files (requires bastion upload proxy)
+  dillion files upload <path...> -p <pid> Upload one or more files
+    --wait                                Wait until ingestion completes
+    --force                               Upload even if same file name exists in project
 
 JOBS
   dillion jobs list -p <pid>              List jobs in a project
@@ -34,6 +38,7 @@ JOBS
   dillion jobs wait <job-id>              Wait until job status is completed (ingestion done) or failed
     --interval <sec>                      Poll interval (default: 5)
     --timeout <sec>                       Max wait, 0 = none (default: 0)
+                                          (prints per-step timing while polling)
 
 AGENT
   dillion agent ask <query> -p <pid>      Ask a question (generates answer)
@@ -55,7 +60,7 @@ OTHER
   dillion help                            Show quick help
 
 FLAGS
-  --project, -p <id>                      Project ID
+  --project, -p <id>                      Project ID (optional after dillion project use)
   --json                                  Output raw JSON (all commands)
   --limit <n>                             Result limit
   --out, -o <file>                        Output file
@@ -70,6 +75,8 @@ EXAMPLES
   dillion agent ask "What are the key covenants?" -p 8f3a...
   dillion jobs list -p 8f3a... --json | jq '.jobs[].fileName'
   dillion jobs wait <job-id> --timeout 7200
+  dillion project use 8f3a...
+  dillion files upload ./contract.pdf --wait
   dillion files upload ./contract.pdf -p 8f3a... --json | jq -r .job_id | xargs -I{} dillion jobs wait {}
 `;
 

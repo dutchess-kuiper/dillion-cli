@@ -4,9 +4,11 @@ import { join } from "path";
 const CONFIG_DIR = join(homedir(), ".config", "dillion");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
-interface Config {
+export interface Config {
   apiKey: string;
   baseUrl: string;
+  /** Saved by \`dillion project use\`; used when commands omit -p/--project */
+  projectId?: string;
 }
 
 export async function loadConfig(): Promise<Config | null> {

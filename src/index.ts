@@ -57,12 +57,15 @@ Commands:
   update                       Update to latest version
   health                       Check server status
 
+  projects list [--name <text>] List projects (optional name filter)
+  projects create <name>       Create a project
+  project use <pid>            Save default project (optional -p for other commands)
+  project show | project clear Show or clear default project
+
   search <query> -p <pid>      Hybrid search documents
   files search <query> -p <pid>  Search files by name
   files download <jobId...>    Download files locally
-  files upload <file...> -p <pid>  Upload files to a project
-  projects list [--name <text>] List projects (optional name filter)
-  projects create <name>       Create a project
+  files upload <file...> -p <pid>  Upload files ([--wait] waits for ingestion)
   filters <pid>                Get filter facets for a project
   jobs list -p <pid>           List jobs (use --help for all filters)
   jobs list -p <pid> --filters Show available filter values
@@ -74,7 +77,7 @@ Commands:
   obligations <pid>            Download obligations CSV
 
 Flags:
-  --project, -p <id>   Project ID
+  --project, -p <id>   Project ID (optional after: dillion project use <id>)
   --json               Output raw JSON
   --limit <n>          Result limit
   --out, -o <path>     Output file or directory
@@ -122,6 +125,22 @@ async function main() {
         return projectsCreateCommand(subrest);
       }
       console.error("Usage: dillion projects <list|create>");
+      process.exit(1);
+    }
+    case "project": {
+      if (subcommand === "use") {
+        const { projectUseCommand } = await import("./commands/project");
+        return projectUseCommand(subrest);
+      }
+      if (subcommand === "show") {
+        const { projectShowCommand } = await import("./commands/project");
+        return projectShowCommand();
+      }
+      if (subcommand === "clear") {
+        const { projectClearCommand } = await import("./commands/project");
+        return projectClearCommand();
+      }
+      console.error("Usage: dillion project <use|show|clear>");
       process.exit(1);
     }
     case "files": {

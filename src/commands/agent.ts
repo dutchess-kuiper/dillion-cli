@@ -1,13 +1,17 @@
 import { api } from "../api";
+import { requireProjectId } from "../projectContext";
 import { parseFlags } from "../flags";
 
 export async function agentAskCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
   const query = positional.join(" ");
-  const projectId = flags.project || flags.p;
+  const projectId = await requireProjectId(
+    flags,
+    "Usage: dillion agent ask <query> --project <id>  (or: dillion project use <id>)"
+  );
   const json = flags.json !== undefined;
 
-  if (!projectId || !query) {
+  if (!query) {
     console.error("Usage: dillion agent ask <query> --project <id>");
     process.exit(1);
   }
@@ -43,11 +47,14 @@ export async function agentAskCommand(args: string[]) {
 export async function agentSearchCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
   const query = positional.join(" ");
-  const projectId = flags.project || flags.p;
+  const projectId = await requireProjectId(
+    flags,
+    "Usage: dillion agent search <query> --project <id>  (or: dillion project use <id>)"
+  );
   const limit = flags.limit ? parseInt(flags.limit) : 10;
   const json = flags.json !== undefined;
 
-  if (!projectId || !query) {
+  if (!query) {
     console.error("Usage: dillion agent search <query> --project <id>");
     process.exit(1);
   }

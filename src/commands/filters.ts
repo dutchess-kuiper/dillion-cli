@@ -1,13 +1,14 @@
 import { api } from "../api";
+import { resolveProjectId } from "../projectContext";
 import { parseFlags } from "../flags";
 
 export async function filtersCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const projectId = positional[0] || flags.project || flags.p;
+  const projectId = await resolveProjectId(flags, positional[0]);
   const json = flags.json !== undefined;
 
   if (!projectId) {
-    console.error("Usage: dillion filters <project-id>");
+    console.error("Usage: dillion filters <project-id>  (or set default: dillion project use <id>)");
     process.exit(1);
   }
 

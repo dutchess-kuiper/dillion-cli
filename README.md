@@ -147,3 +147,7 @@ dillion update
 sudo rm /usr/local/bin/dillion
 rm -rf ~/.config/dillion
 ```
+
+## Releasing (maintainers)
+
+See [RELEASING.md](RELEASING.md) for versioning, tags, and CI.

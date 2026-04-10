@@ -1,8 +1,12 @@
 import { api } from "../api";
+import { waitForJobCompletion } from "../jobWait";
+import { resolveProjectId } from "../projectContext";
 import { parseFlags } from "../flags";
 
 const JOBS_LIST_HELP = `
 Usage: dillion jobs list --project <id> [options]
+
+  Default project: set with "dillion project use <id>" to omit --project.
 
 Filters:
   --status <s>              Filter by status (pending, processing, completed, failed)
@@ -40,7 +44,7 @@ export async function jobsListCommand(args: string[]) {
     return;
   }
 
-  const projectId = flags.project || flags.p;
+  const projectId = await resolveProjectId(flags);
   const json = flags.json !== undefined;
 
   if (!projectId) {
@@ -151,6 +155,7 @@ const JOBS_WAIT_HELP = `
 Usage: dillion jobs wait <job-id> [options]
 
 Poll until the job finishes ingestion (status becomes completed) or fails.
+Shows per-step timing while waiting (from job step started/completed timestamps).
 
   --interval <sec>   Seconds between polls (default: 5)
   --timeout <sec>    Give up after this many seconds (default: 0 = no limit)
@@ -158,20 +163,6 @@ Poll until the job finishes ingestion (status becomes completed) or fails.
 
 Exits 0 when the job status is completed; exits 1 on failure or timeout.
 `.trim();
-
-type JobPayload = {
-  status: string;
-  fileName?: string;
-  steps?: Array<{ stepName: string; status: string; error?: string | null }>;
-};
-
-function terminalWaitState(data: JobPayload): "done" | "error" {
-  if (data.status === "failed") return "error";
-  const failedStep = data.steps?.find((s) => s.status === "failed");
-  if (failedStep) return "error";
-  if (data.status === "completed") return "done";
-  return "wait";
-}
 
 export async function jobsWaitCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
@@ -199,48 +190,12 @@ export async function jobsWaitCommand(args: string[]) {
     process.exit(1);
   }
 
-  const started = Date.now();
-  const intervalMs = intervalSec * 1000;
-  const timeoutMs = timeoutSec > 0 ? timeoutSec * 1000 : 0;
-
-  for (;;) {
-    if (timeoutMs > 0 && Date.now() - started > timeoutMs) {
-      console.error(`Timeout after ${timeoutSec}s waiting for job ${jobId}`);
-      process.exit(1);
-    }
-
-    const data = (await api(`/jobs/${jobId}`)) as JobPayload;
-    const t = terminalWaitState(data);
-
-    if (!json) {
-      const indexStep = data.steps?.find((s) => s.stepName === "index");
-      const indexLabel = indexStep ? indexStep.status : "—";
-      console.error(
-        `[${new Date().toISOString()}] ${data.fileName ?? jobId}  job=${data.status}  index=${indexLabel}`
-      );
-    }
-
-    if (t === "done") {
-      if (json) {
-        console.log(JSON.stringify(data, null, 2));
-      } else {
-        console.error(`Done: job ${jobId} completed (ingestion finished).`);
-      }
-      return;
-    }
-    if (t === "error") {
-      const failed = data.steps?.find((s) => s.status === "failed");
-      const detail = failed?.error
-        ? `${failed.stepName}: ${failed.error}`
-        : data.status === "failed"
-          ? "job status failed"
-          : "a step failed";
-      console.error(`Job ${jobId} failed (${detail})`);
-      process.exit(1);
-    }
-
-    await new Promise((r) => setTimeout(r, intervalMs));
-  }
+  await waitForJobCompletion({
+    jobId,
+    intervalSec,
+    timeoutSec,
+    json,
+  });
 }
 
 export async function jobsGetCommand(args: string[]) {

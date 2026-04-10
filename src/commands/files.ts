@@ -2,50 +2,132 @@ import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
 import { api, apiUpload } from "../api";
 import { getConfig } from "../config";
+import { waitForJobCompletion } from "../jobWait";
+import { requireProjectId, resolveProjectId } from "../projectContext";
 import { parseFlags } from "../flags";
+
+const FILES_UPLOAD_HELP = `
+Usage: dillion files upload <file> [...] --project <id> [options]
+
+  --wait              After each upload, wait until ingestion completes (see jobs wait)
+  --interval <sec>    Poll interval when using --wait (default: 5)
+  --timeout <sec>     Max wait seconds per file with --wait, 0 = no limit (default: 0)
+  --force             Upload even if a job with the same file name already exists
+  --json              Raw JSON (per file or { uploads: [...] })
+
+Set a default project with: dillion project use <id>  (then -p is optional)
+`.trim();
+
+async function findExistingJobByFileName(projectId: string, fileName: string) {
+  const data = await api("/jobs/list", {
+    method: "POST",
+    body: { projectId, search: fileName, limit: 80 },
+  });
+  const jobs = (data.jobs ?? []) as Array<{ id: string; fileName: string; status: string }>;
+  return jobs.find((j) => j.fileName === fileName);
+}
 
 export async function filesUploadCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const projectId = flags.project || flags.p;
-  const json = flags.json !== undefined;
 
-  if (!projectId || positional.length === 0) {
-    console.error("Usage: dillion files upload <file> [...] --project <id>");
+  if (flags.help === "" || flags.h === "") {
+    console.log(FILES_UPLOAD_HELP);
+    return;
+  }
+
+  const projectId = await requireProjectId(
+    flags,
+    FILES_UPLOAD_HELP
+  );
+  const json = flags.json !== undefined;
+  const wait = flags.wait !== undefined;
+  const force = flags.force !== undefined;
+  const intervalSec = flags.interval ? parseFloat(flags.interval) : 5;
+  const timeoutSec = flags.timeout !== undefined ? parseInt(flags.timeout, 10) : 0;
+
+  if (positional.length === 0) {
+    console.error(FILES_UPLOAD_HELP);
+    process.exit(1);
+  }
+  if (intervalSec <= 0 || Number.isNaN(intervalSec)) {
+    console.error("Error: --interval must be a positive number");
+    process.exit(1);
+  }
+  if (flags.timeout !== undefined && (Number.isNaN(timeoutSec) || timeoutSec < 0)) {
+    console.error("Error: --timeout must be a non-negative integer (0 = no limit)");
     process.exit(1);
   }
 
   const results: Record<string, unknown>[] = [];
 
   for (const filePath of positional) {
+    const baseName = basename(filePath);
+    if (!force) {
+      const existing = await findExistingJobByFileName(projectId, baseName);
+      if (existing) {
+        console.error(
+          `Skipping ${baseName}: a job with this file name already exists (job ${existing.id}, status=${existing.status}).\n` +
+            `  Use --force to upload anyway.`
+        );
+        if (json) {
+          results.push({
+            path: filePath,
+            skipped: true,
+            reason: "duplicate_file_name",
+            existing_job_id: existing.id,
+            existing_status: existing.status,
+          });
+        }
+        continue;
+      }
+    }
+
     const data = await apiUpload(filePath, projectId);
-    results.push({ path: filePath, ...data });
+    const row: Record<string, unknown> = { path: filePath, ...data };
+    results.push(row);
+
+    if (!json) {
+      const jobId = row.job_id as string | undefined;
+      const fileName = row.file_name as string | undefined;
+      const s3Key = row.s3_key as string | undefined;
+      if (jobId) {
+        const s3Note = s3Key ? `  s3_key=${s3Key}` : "";
+        console.log(`${fileName ?? baseName}  job_id=${jobId}${s3Note}`);
+      } else {
+        console.log(JSON.stringify(row));
+      }
+    }
+
+    if (wait && row.job_id) {
+      const final = await waitForJobCompletion({
+        jobId: String(row.job_id),
+        intervalSec,
+        timeoutSec,
+        json,
+        ...(json ? { printJsonOnSuccess: false as const } : {}),
+      });
+      if (json) {
+        row.job_completed = final;
+      }
+    }
   }
 
   if (json) {
     console.log(JSON.stringify(positional.length === 1 ? results[0] : { uploads: results }, null, 2));
-    return;
-  }
-
-  for (const row of results) {
-    const jobId = row.job_id as string | undefined;
-    const fileName = row.file_name as string | undefined;
-    const localPath = row.path as string | undefined;
-    if (jobId) {
-      console.log(`${fileName ?? localPath ?? "?"}  job_id=${jobId}`);
-    } else {
-      console.log(JSON.stringify(row));
-    }
   }
 }
 
 export async function filesSearchCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
   const query = positional.join(" ");
-  const projectId = flags.project || flags.p;
+  const projectId = await requireProjectId(
+    flags,
+    "Usage: dillion files search <query> --project <id>  (or: dillion project use <id>)"
+  );
   const limit = flags.limit ? parseInt(flags.limit) : 50;
   const json = flags.json !== undefined;
 
-  if (!projectId || !query) {
+  if (!query) {
     console.error("Usage: dillion files search <query> --project <id>");
     process.exit(1);
   }
@@ -71,7 +153,7 @@ export async function filesSearchCommand(args: string[]) {
 
 export async function filesDownloadCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const projectId = flags.project || flags.p;
+  const projectId = await resolveProjectId(flags);
   const json = flags.json !== undefined;
   const format = (flags.format || "original").toLowerCase();
   const out = flags.out || flags.o;

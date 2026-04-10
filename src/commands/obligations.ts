@@ -1,13 +1,14 @@
 import { api } from "../api";
+import { resolveProjectId } from "../projectContext";
 import { parseFlags } from "../flags";
 
 export async function obligationsCommand(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const projectId = positional[0] || flags.project || flags.p;
+  const projectId = await resolveProjectId(flags, positional[0]);
   const out = flags.out || flags.o;
 
   if (!projectId) {
-    console.error("Usage: dillion obligations <project-id> [--out file.csv]");
+    console.error("Usage: dillion obligations <project-id> [--out file.csv]  (or: dillion project use <id>)");
     process.exit(1);
   }
 

@@ -1,4 +1,4 @@
-import { saveConfig, CONFIG_DIR } from "../config";
+import { loadConfig, saveConfig, CONFIG_DIR } from "../config";
 import { mkdirSync } from "fs";
 
 export async function authCommand(args: string[]) {
@@ -34,7 +34,12 @@ export async function authCommand(args: string[]) {
   // Ensure config dir exists
   mkdirSync(CONFIG_DIR, { recursive: true });
 
-  await saveConfig({ apiKey, baseUrl: server });
+  const previous = await loadConfig();
+  await saveConfig({
+    apiKey,
+    baseUrl: server,
+    ...(previous?.projectId ? { projectId: previous.projectId } : {}),
+  });
 
   console.log("Authenticated successfully.");
   if (baseUrl) console.log(`Server: ${server}`);
