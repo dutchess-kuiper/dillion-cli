@@ -26,7 +26,7 @@ Releases are **tag-driven**. Pushing a version tag runs [`.github/workflows/rele
 
    (Push your branch commit first if needed: `git push origin main`.)
 
-3. **GitHub Actions** runs `bun install`, `bun run build`, and uploads:
+3. **GitHub Actions** runs on **macOS**, builds the CLI, ad-hoc signs the macOS binaries, and uploads:
 
    - `dist/dillion-darwin-arm64`
    - `dist/dillion-darwin-x64`
@@ -40,6 +40,7 @@ Releases are **tag-driven**. Pushing a version tag runs [`.github/workflows/rele
 ### Prerequisites
 
 - **Bun** is used for the build (`bun build --compile` per target in `package.json`).
+- **macOS binaries are signed in CI** before upload so `dillion update` installs runnable executables on macOS.
 - Workflow permissions: `contents: write` (already set in the workflow) so the action can create/update the release.
 
 ## Local build (sanity check)

@@ -35,6 +35,31 @@ TMP="$(mktemp)"
 curl -fSL "$URL" -o "$TMP"
 chmod +x "$TMP"
 
+if [ "$OS" = "Darwin" ]; then
+  echo "Ad-hoc signing macOS binary..."
+  ENTITLEMENTS="$(mktemp)"
+  cat > "$ENTITLEMENTS" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-executable-page-protection</key>
+  <true/>
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+EOF
+  codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$TMP"
+  rm -f "$ENTITLEMENTS"
+fi
+
 # Install
 mkdir -p "$INSTALL_DIR" 2>/dev/null || sudo mkdir -p "$INSTALL_DIR"
 if [ -w "$INSTALL_DIR" ]; then
