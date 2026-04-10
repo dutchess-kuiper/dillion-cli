@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.9";
+export const VERSION = "0.1.10";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -61,6 +61,8 @@ Commands:
   files search <query> -p <pid>  Search files by name
   files download <jobId...>    Download files locally
   files upload <file...> -p <pid>  Upload files to a project
+  projects list [--name <text>] List projects (optional name filter)
+  projects create <name>       Create a project
   filters <pid>                Get filter facets for a project
   jobs list -p <pid>           List jobs (use --help for all filters)
   jobs list -p <pid> --filters Show available filter values
@@ -109,6 +111,18 @@ async function main() {
     case "search": {
       const { searchCommand } = await import("./commands/search");
       return searchCommand(rest);
+    }
+    case "projects": {
+      if (subcommand === "list") {
+        const { projectsListCommand } = await import("./commands/projects");
+        return projectsListCommand(subrest);
+      }
+      if (subcommand === "create") {
+        const { projectsCreateCommand } = await import("./commands/projects");
+        return projectsCreateCommand(subrest);
+      }
+      console.error("Usage: dillion projects <list|create>");
+      process.exit(1);
     }
     case "files": {
       if (subcommand === "search") {

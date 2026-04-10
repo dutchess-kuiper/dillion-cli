@@ -81,3 +81,24 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
 
   return res.json() as Promise<Record<string, unknown>>;
 }
+
+/** GET bastion `/projects` (optional `name` substring filter). */
+export async function apiProjectsList(nameFilter?: string): Promise<unknown> {
+  const q =
+    nameFilter !== undefined && nameFilter !== ""
+      ? `?name=${encodeURIComponent(nameFilter)}`
+      : "";
+  return api(`/projects${q}`);
+}
+
+/** POST bastion `/projects` — `description` omitted unless provided. */
+export async function apiProjectsCreate(
+  name: string,
+  description?: string | null
+): Promise<unknown> {
+  const body: { name: string; description?: string | null } = { name };
+  if (description !== undefined) {
+    body.description = description;
+  }
+  return api("/projects", { method: "POST", body });
+}

@@ -12,6 +12,11 @@ SEARCH
     --alpha <0-1>                         0 = keyword, 1 = semantic (default: 0.5)
     --job <id>                            Filter to a specific job
 
+PROJECTS
+  dillion projects list [--name <text>]     List your projects (optional name filter)
+  dillion projects create <name>           Create a project
+    --description, -d <text>               Optional description
+
 FILES
   dillion files search <query> -p <pid>   Search files by name
   dillion files download <id...> -p <pid> Download files locally
@@ -57,6 +62,8 @@ FLAGS
 
 EXAMPLES
   dillion auth dln_abc123
+  dillion projects list
+  dillion projects create "New deal" -d "Client X"
   dillion search "revenue recognition" -p 8f3a...
   dillion jobs list -p 8f3a... --status completed --json
   dillion obligations 8f3a... -o matobs.csv

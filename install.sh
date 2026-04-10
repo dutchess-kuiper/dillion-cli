@@ -44,5 +44,3 @@ else
 fi
 
 echo "Installed $BINARY_NAME to $INSTALL_DIR/$BINARY_NAME"
-echo ""
-echo "Run 'dillion auth <api-key>' to get started."

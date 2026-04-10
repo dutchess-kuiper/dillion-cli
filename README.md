@@ -31,6 +31,22 @@ dillion search "revenue recognition" -p <project-id>
 dillion search "lease terms" -p <project-id> --limit 20 --alpha 0.7
 ```
 
+### Projects
+
+List projects (optional substring filter on name):
+
+```sh
+dillion projects list
+dillion projects list --name acme
+```
+
+Create a project:
+
+```sh
+dillion projects create "Q4 diligence"
+dillion projects create my-project -d "Optional description"
+```
+
 ### Files
 
 Search files by name:
@@ -107,6 +123,8 @@ dillion help         # Show help
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--project` | `-p` | Project ID |
+| `--description` | `-d` | Project description (`projects create`) |
+| `--name` | | Filter projects by name substring (`projects list`) |
 | `--json` | | Output raw JSON |
 | `--limit` | | Result limit |
 | `--out` | `-o` | Output file or directory |
