@@ -82,6 +82,45 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
   return res.json() as Promise<Record<string, unknown>>;
 }
 
+/**
+ * POST multipart to an arbitrary bastion path with optional extra form fields.
+ * `file` is required (a Bun.BunFile or Blob). Returns parsed JSON.
+ */
+export async function apiUploadMultipart(
+  path: string,
+  options: {
+    fileBlob: Blob;
+    fileName: string;
+    fields?: Record<string, string | undefined>;
+  }
+): Promise<any> {
+  const { apiKey, baseUrl } = await config();
+  const formData = new FormData();
+  formData.append("file", options.fileBlob, options.fileName);
+  for (const [k, v] of Object.entries(options.fields ?? {})) {
+    if (v !== undefined && v !== null) formData.append(k, v);
+  }
+
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    let msg: string;
+    try {
+      msg = JSON.parse(err).error;
+    } catch {
+      msg = err;
+    }
+    console.error(`Error ${res.status}: ${msg}`);
+    process.exit(1);
+  }
+  return res.json();
+}
+
 /** GET bastion `/projects` (optional `name` substring filter). */
 export async function apiProjectsList(nameFilter?: string): Promise<unknown> {
   const q =

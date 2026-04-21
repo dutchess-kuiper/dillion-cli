@@ -76,6 +76,13 @@ Commands:
   agent search <query> -p <pid>  Agent retrieval search
   obligations <pid>            Download obligations CSV
 
+  artifacts init [dir]         Scaffold a Vite + React research report
+  artifacts dev | build [dir]  Run vite dev / build for the report
+  artifacts publish [dir]      Publish report (--title <t> -p <pid> | --report <id>)
+  artifacts list -p <pid>      List research reports for a project
+  artifacts get <report-id>    Show report + versions
+  artifacts share <report-id>  Create password-protected share link
+
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
   --json               Output raw JSON
@@ -194,6 +201,10 @@ async function main() {
     case "obligations": {
       const { obligationsCommand } = await import("./commands/obligations");
       return obligationsCommand(rest);
+    }
+    case "artifacts": {
+      const { artifactsCommand } = await import("./commands/artifacts");
+      return artifactsCommand(rest);
     }
     default:
       console.error(`Unknown command: ${command}`);
