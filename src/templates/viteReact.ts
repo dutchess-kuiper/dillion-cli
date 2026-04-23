@@ -41,13 +41,45 @@ import react from "@vitejs/plugin-react";
 
 // Relative base so the bundle works no matter where it's mounted
 // (member viewer, share link, local preview).
+//
+// The share viewer renders the report inside sandbox="allow-scripts" (no
+// allow-same-origin), so the iframe document has a null origin. That breaks
+// two default Vite behaviors: ES-module scripts are fetched in CORS mode and
+// get blocked (no ACAO for null), and \`crossorigin\` on <script>/<link> tags
+// disables credentialed requests so the share-session cookie never flows.
+// We emit a classic IIFE bundle and strip crossorigin/type="module" from the
+// entry tags — classic loads aren't CORS-gated and send cookies per SameSite.
+function dillionShareCompat() {
+  return {
+    name: "dillion-share-compat",
+    transformIndexHtml(html: string) {
+      return html
+        .replace(/\\s+crossorigin(?:="[^"]*")?/g, "")
+        // Classic scripts in <head> run before <body> is parsed, so
+        // \`document.getElementById("root")\` returns null. Module scripts
+        // were implicitly deferred; we add \`defer\` to preserve that.
+        .replace(/<script\\s+type="module"/g, "<script defer");
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), dillionShareCompat()],
   base: "./",
   build: {
     outDir: "dist",
     sourcemap: false,
     target: "es2020",
+    modulePreload: false,
+    rollupOptions: {
+      output: {
+        format: "iife",
+        inlineDynamicImports: true,
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+    },
   },
 });
 `;
