@@ -24,8 +24,8 @@ Discovery:
   get <report-id>               Show a report and its versions
 
 Sharing:
-  share <report-id> [--password <pw>] [--expires-days N] [--allow-citations]
-                                Create a password-protected share link
+  share <report-id> [--password <pw>] [--expires-days N] [--no-citations]
+                                Create a share link (source preview on by default; use --no-citations to disable)
 
 Common flags:
   --json                        Raw JSON output
@@ -252,14 +252,23 @@ async function artifactsShare(args: string[]) {
   const { flags, positional } = parseFlags(args);
   const reportId = positional[0];
   if (!reportId) {
-    console.error("Usage: dillion artifacts share <report-id> [--password <pw>] [--expires-days N] [--allow-citations]");
+    console.error(
+      "Usage: dillion artifacts share <report-id> [--password <pw>] [--expires-days N] [--no-citations]",
+    );
+    process.exit(1);
+  }
+  const noCitations = flags["no-citations"] !== undefined;
+  const allowCitations = flags["allow-citations"] !== undefined;
+  if (noCitations && allowCitations) {
+    console.error("Cannot use both --allow-citations and --no-citations");
     process.exit(1);
   }
   const body: Record<string, unknown> = {};
   if (flags.password) body.password = flags.password;
   if (flags["expires-days"]) body.expires_in_days = parseInt(flags["expires-days"], 10);
   if (flags.version) body.pinned_version = parseInt(flags.version, 10);
-  if (flags["allow-citations"] !== undefined) body.allow_citation_excerpts = true;
+  if (noCitations) body.allow_citation_excerpts = false;
+  else if (allowCitations) body.allow_citation_excerpts = true;
 
   const res = await api(`/research-reports/${encodeURIComponent(reportId)}/share`, {
     method: "POST",

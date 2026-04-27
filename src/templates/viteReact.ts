@@ -388,7 +388,7 @@ To publish a new version of an existing report:
 dillion artifacts publish --report <report-id>
 \`\`\`
 
-To create a password-protected share link:
+To create a share link (optional password; source document preview is on by default, add \`--no-citations\` to disable):
 
 \`\`\`sh
 dillion artifacts share <report-id> --password '<strong>'
