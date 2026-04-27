@@ -26,6 +26,18 @@ Discovery:
 Sharing:
   share <report-id> [--password <pw>] [--expires-days N] [--no-citations]
                                 Create a share link (source preview on by default; use --no-citations to disable)
+  share list <report-id>        List share links (active + revoked) for a report
+  share update <report-id> <share-id> [options]
+                                Change password, expiry, pin, or citation preview (see --help on each)
+
+Common flags (share create/update):
+  --password <pw>            Set or change password (8+ chars)
+  --remove-password         Remove password (open link)
+  --expires-days <N>        Set expiry to N days from now (1–365)
+  --no-expiry               Remove expiry
+  --version <N>             Pin to report version; combine with --latest to unpin
+  --latest                  Pin to "always current version" (clears a version pin)
+  --no-citations / --allow-citations   Toggle source preview for viewers
 
 Common flags:
   --json                        Raw JSON output
@@ -250,25 +262,132 @@ async function artifactsGet(args: string[]) {
 
 async function artifactsShare(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const reportId = positional[0];
-  if (!reportId) {
-    console.error(
-      "Usage: dillion artifacts share <report-id> [--password <pw>] [--expires-days N] [--no-citations]",
-    );
-    process.exit(1);
+  if (positional[0] === "list") {
+    if (!positional[1]) {
+      console.error("Usage: dillion artifacts share list <report-id>");
+      process.exit(1);
+    }
+    return artifactsShareList(positional[1], flags);
   }
+  if (positional[0] === "update") {
+    const reportId = positional[1];
+    const shareId = positional[2];
+    if (!reportId || !shareId) {
+      console.error(
+        "Usage: dillion artifacts share update <report-id> <share-id> [options]\n" +
+          "  Options: --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations, --json",
+      );
+      process.exit(1);
+    }
+    return artifactsShareUpdate(reportId, shareId, flags);
+  }
+  return artifactsShareCreate(args);
+}
+
+async function artifactsShareList(reportId: string, flags: Record<string, string | true | undefined>) {
+  const data = await api(`/research-reports/${encodeURIComponent(reportId)}/shares`);
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify(data, null, 2));
+    return;
+  }
+  if (!Array.isArray(data) || data.length === 0) {
+    console.log("(no share links)");
+    return;
+  }
+  for (const s of data) {
+    const rev = s.revoked_at ? ` revoked ${s.revoked_at}` : " active";
+    const pin = s.pinned_version != null ? `v${s.pinned_version}` : "latest";
+    const ex = s.expires_at ? s.expires_at : "no expiry";
+    const pw = s.has_password ? "password" : "open";
+    const cite = s.allow_citation_excerpts ? "citations" : "no-citations";
+    console.log(
+      `${s.id}\n  token: ${s.token.slice(0, 12)}…  ${pw}  pin:${pin}  ${cite}  ${ex}${rev}\n  created: ${s.created_at}`,
+    );
+  }
+}
+
+function buildShareUpdateBody(
+  flags: Record<string, string | true | undefined>,
+  forCreate: boolean,
+): Record<string, unknown> {
   const noCitations = flags["no-citations"] !== undefined;
   const allowCitations = flags["allow-citations"] !== undefined;
   if (noCitations && allowCitations) {
     console.error("Cannot use both --allow-citations and --no-citations");
     process.exit(1);
   }
+  const removePassword = flags["remove-password"] !== undefined;
+  const noExpiry = flags["no-expiry"] !== undefined;
+  const latest = flags.latest !== undefined;
+  if (noExpiry && flags["expires-days"]) {
+    console.error("Cannot use both --no-expiry and --expires-days");
+    process.exit(1);
+  }
+  if (latest && flags.version) {
+    console.error("Cannot use both --latest and --version (pick one)");
+    process.exit(1);
+  }
+  if (forCreate) {
+    if (removePassword || noExpiry) {
+      console.error("--remove-password and --no-expiry are only for: dillion artifacts share update …");
+      process.exit(1);
+    }
+    if (latest) {
+      console.error("--latest is only for share update (use a version pin on create, or leave unpinned for latest)");
+      process.exit(1);
+    }
+  }
   const body: Record<string, unknown> = {};
   if (flags.password) body.password = flags.password;
-  if (flags["expires-days"]) body.expires_in_days = parseInt(flags["expires-days"], 10);
-  if (flags.version) body.pinned_version = parseInt(flags.version, 10);
+  if (removePassword) body.remove_password = true;
+  if (flags["expires-days"]) {
+    body.expires_in_days = parseInt(String(flags["expires-days"]), 10);
+  }
+  if (noExpiry) body.clear_expiry = true;
+  if (latest) body.pin_to_latest = true;
+  if (flags.version) body.pinned_version = parseInt(String(flags.version), 10);
   if (noCitations) body.allow_citation_excerpts = false;
   else if (allowCitations) body.allow_citation_excerpts = true;
+  return body;
+}
+
+async function artifactsShareUpdate(
+  reportId: string,
+  shareId: string,
+  flags: Record<string, string | true | undefined>,
+) {
+  const body = buildShareUpdateBody(flags, false);
+  if (Object.keys(body).length === 0) {
+    console.error("No changes: pass at least one of --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations");
+    process.exit(1);
+  }
+  const s = await api(
+    `/research-reports/${encodeURIComponent(reportId)}/shares/${encodeURIComponent(shareId)}`,
+    { method: "PATCH", body },
+  );
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify(s, null, 2));
+    return;
+  }
+  console.log("✓ Share link updated");
+  console.log(`  has_password: ${s.has_password}`);
+  console.log(`  pinned: ${s.pinned_version ?? "latest"}`);
+  console.log(`  allow_citation_excerpts: ${s.allow_citation_excerpts}`);
+  console.log(`  expires_at: ${s.expires_at ?? "(none)"}`);
+}
+
+async function artifactsShareCreate(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const reportId = positional[0];
+  if (!reportId) {
+    console.error(
+      "Usage: dillion artifacts share <report-id> [--password <pw>] [--expires-days N] [--no-citations] ...\n" +
+        "     dillion artifacts share list <report-id>\n" +
+        "     dillion artifacts share update <report-id> <share-id> [options]",
+    );
+    process.exit(1);
+  }
+  const body = buildShareUpdateBody(flags, true);
 
   const res = await api(`/research-reports/${encodeURIComponent(reportId)}/share`, {
     method: "POST",
@@ -278,14 +397,12 @@ async function artifactsShare(args: string[]) {
     console.log(JSON.stringify(res, null, 2));
     return;
   }
-  console.log(`✓ Share link created`);
+  console.log("✓ Share link created");
   console.log(`  token:    ${res.share.token}`);
   console.log(`  url path: ${res.url_path}`);
-  if (res.share.has_password) console.log(`  password: required`);
+  if (res.share.has_password) console.log("  password: required");
   if (res.share.expires_at) console.log(`  expires:  ${res.share.expires_at}`);
 }
-
-// ─── helpers ──────────────────────────────────────────────────────────────
 
 async function pathExists(p: string): Promise<boolean> {
   try {

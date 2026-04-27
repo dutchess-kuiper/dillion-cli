@@ -81,7 +81,7 @@ Commands:
   artifacts publish [dir]      Publish report (--title <t> -p <pid> | --report <id>)
   artifacts list -p <pid>      List research reports for a project
   artifacts get <report-id>    Show report + versions
-  artifacts share <report-id>  Create share link (source preview on by default)
+  artifacts share <report-id>  Create link (or: share list / share update, see artifacts help)
 
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)

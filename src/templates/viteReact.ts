@@ -52,6 +52,7 @@ import react from "@vitejs/plugin-react";
 function dillionShareCompat() {
   return {
     name: "dillion-share-compat",
+    apply: "build",
     transformIndexHtml(html: string) {
       return html
         .replace(/\\s+crossorigin(?:="[^"]*")?/g, "")
