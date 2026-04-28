@@ -27,9 +27,11 @@ const PACKAGE_JSON = `{
     "recharts": "^2.12.7"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "tailwindcss": "^4.1.0",
     "typescript": "^5.4.0",
     "vite": "^5.4.0"
   }
@@ -38,6 +40,7 @@ const PACKAGE_JSON = `{
 
 const VITE_CONFIG = `import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // Relative base so the bundle works no matter where it's mounted
 // (member viewer, share link, local preview).
@@ -65,7 +68,7 @@ function dillionShareCompat() {
 }
 
 export default defineConfig({
-  plugins: [react(), dillionShareCompat()],
+  plugins: [react(), tailwindcss(), dillionShareCompat()],
   base: "./",
   build: {
     outDir: "dist",
@@ -133,31 +136,38 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 `;
 
-const STYLES_CSS = `:root {
-  color-scheme: light dark;
-  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+const STYLES_CSS = `@import "tailwindcss";
+
+/*
+ * Dillion FDD palette (matches skills/fdd-4-charts/references/image_chart_styling.md).
+ * Tailwind v4 generates utilities from these tokens automatically:
+ *   bg-fdd-primary, text-fdd-muted, border-fdd-border, …
+ */
+@theme {
+  --color-fdd-primary: #1B4F72;
+  --color-fdd-secondary: #5B9BD5;
+  --color-fdd-tertiary: #7DC6C6;
+  --color-fdd-quaternary: #2E86AB;
+  --color-fdd-quinary: #A8D5E2;
+  --color-fdd-accent: #F0A500;
+  --color-fdd-negative: #C0392B;
+  --color-fdd-text: #1A1A1A;
+  --color-fdd-muted: #6B7280;
+  --color-fdd-border: #E5E7EB;
+  --color-fdd-bg: #F9FAFB;
+  --color-fdd-card: #FFFFFF;
+  --color-fdd-table-head: #0E2841;
 }
 
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg, #fff);
-  color: var(--fg, #111);
+html, body {
+  background: var(--color-fdd-bg);
+  color: var(--color-fdd-text);
 }
 
-main {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 48px 24px 96px;
-  line-height: 1.55;
-}
-
-h1 { font-size: 2.25rem; margin: 0 0 8px; }
-h2 { font-size: 1.5rem; margin-top: 2.5rem; }
-p { margin: 0.75em 0; }
-
+/*
+ * Citation chip — base appearance is overridable with Tailwind utilities on
+ * <Cite className="…" />. Defaults match the in-app Dillion memo look.
+ */
 .cite {
   display: inline-flex;
   align-items: center;
@@ -165,29 +175,17 @@ p { margin: 0.75em 0; }
   padding: 1px 6px;
   font-size: 0.78em;
   border-radius: 4px;
-  border: 1px solid currentColor;
-  background: transparent;
-  color: inherit;
+  background: rgba(27, 79, 114, 0.08);
+  color: var(--color-fdd-primary);
   cursor: pointer;
   vertical-align: text-top;
   line-height: 1.4;
   font-weight: 500;
+  transition: background 120ms ease;
 }
 
-.cite:hover { background: rgba(127, 127, 127, 0.12); }
-
-.callout {
-  margin: 24px 0;
-  padding: 16px 20px;
-  border-left: 3px solid #888;
-  background: rgba(127, 127, 127, 0.08);
-  border-radius: 4px;
-}
-
-.chart {
-  margin: 24px 0;
-  width: 100%;
-  height: 300px;
+.cite:hover {
+  background: rgba(27, 79, 114, 0.18);
 }
 `;
 
@@ -213,44 +211,81 @@ const REVENUE = [
 
 export default function App() {
   return (
-    <main>
-      <h1>Acme Industries — Q2 Diligence</h1>
-      <p>
-        This report is rendered as a sandboxed React bundle. Replace this
-        scaffold with your own JSX, charts, and analysis. Citation chips below
-        use the Dillion bridge to ask the host VDR to open the source document.
-      </p>
+    <main className="mx-auto max-w-3xl px-6 py-12">
+      <header className="border-b border-fdd-border pb-6">
+        <div className="text-xs uppercase tracking-widest text-fdd-muted">
+          Confidential — Diligence Report
+        </div>
+        <h1 className="mt-2 text-3xl font-semibold text-fdd-text">
+          Acme Industries — Q2 Diligence
+        </h1>
+        <p className="mt-3 text-fdd-muted">
+          Sandboxed React bundle. Replace the scaffold with your own JSX,
+          charts, and analysis. Citation chips below use the Dillion bridge to
+          ask the host VDR to open the source document.
+        </p>
+      </header>
 
-      <h2>Revenue trajectory</h2>
-      <div className="chart">
-        <ResponsiveContainer>
-          <LineChart data={REVENUE} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(127,127,127,0.3)" />
-            <XAxis dataKey="month" />
-            <YAxis tickFormatter={(v) => \`$\${v}M\`} />
-            <Tooltip formatter={(v: number) => \`$\${v.toFixed(1)}M\`} />
-            <Line type="monotone" dataKey="revenue" strokeWidth={2} dot />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
+      <section className="mt-10">
+        <h2 className="text-xl font-semibold text-fdd-text">
+          Revenue trajectory
+        </h2>
+        <div className="mt-4 rounded-lg border border-fdd-border bg-fdd-card p-4 shadow-sm">
+          <div className="h-64 w-full">
+            <ResponsiveContainer>
+              <LineChart
+                data={REVENUE}
+                margin={{ top: 8, right: 16, bottom: 8, left: 0 }}
+              >
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="var(--color-fdd-border)"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fill: "var(--color-fdd-text)", fontSize: 12 }}
+                  axisLine={{ stroke: "var(--color-fdd-border)" }}
+                />
+                <YAxis
+                  tickFormatter={(v) => \`$\${v}M\`}
+                  tick={{ fill: "var(--color-fdd-text)", fontSize: 12 }}
+                  axisLine={{ stroke: "var(--color-fdd-border)" }}
+                />
+                <Tooltip formatter={(v: number) => \`$\${v.toFixed(1)}M\`} />
+                <Line
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="var(--color-fdd-primary)"
+                  strokeWidth={2.5}
+                  dot={{ r: 4, fill: "var(--color-fdd-primary)" }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </section>
 
-      <h2>Findings</h2>
-      <p>
-        Revenue grew 41% YoY driven by enterprise expansion. Pricing held
-        steady through the period
-        <Cite jobId="REPLACE_WITH_REAL_JOB_ID" label="1" />, with no concessions
-        on master agreements
-        <Cite
-          jobId="REPLACE_WITH_REAL_JOB_ID"
-          chunkId="REPLACE_WITH_REAL_CHUNK_ID"
-          label="2"
-        />.
-      </p>
+      <section className="mt-10">
+        <h2 className="text-xl font-semibold text-fdd-text">Findings</h2>
+        <p className="mt-3 text-fdd-text">
+          Revenue grew 41% YoY driven by enterprise expansion. Pricing held
+          steady through the period
+          <Cite jobId="REPLACE_WITH_REAL_JOB_ID" label="1" />, with no
+          concessions on master agreements
+          <Cite
+            jobId="REPLACE_WITH_REAL_JOB_ID"
+            chunkId="REPLACE_WITH_REAL_CHUNK_ID"
+            label="2"
+          />.
+        </p>
+      </section>
 
-      <div className="callout">
+      <aside className="mt-10 rounded-md border-l-4 border-fdd-secondary bg-fdd-secondary/10 p-4 text-sm text-fdd-text">
         <strong>Note:</strong> Citation chips fall back to plain badges when
         previewed outside the Dillion VDR (e.g. <code>vite preview</code>).
-      </div>
+        Tailwind v4 is bundled — utility classes work out of the box.
+      </aside>
     </main>
   );
 }
@@ -320,11 +355,22 @@ export interface CiteProps {
   jobId: string;
   chunkId?: string;
   label?: string | number;
+  /** Hover tooltip — falls back to a friendly default when omitted. */
+  title?: string;
+  /** Extra Tailwind classes appended to the .cite base. */
+  className?: string;
   children?: ReactNode;
 }
 
 /** Inline citation chip. Click to open source in the parent VDR. */
-export function Cite({ jobId, chunkId, label, children }: CiteProps) {
+export function Cite({
+  jobId,
+  chunkId,
+  label,
+  title,
+  className = "",
+  children,
+}: CiteProps) {
   const [embedded, setEmbedded] = useState(false);
 
   useEffect(() => {
@@ -333,16 +379,17 @@ export function Cite({ jobId, chunkId, label, children }: CiteProps) {
   }, []);
 
   const text = children ?? label ?? "src";
+  const hoverTitle =
+    title ??
+    (embedded
+      ? "Open source document"
+      : "Citation (preview only — open inside Dillion to view source)");
   return (
     <button
       type="button"
-      className="cite"
+      className={\`cite \${className}\`.trim()}
       onClick={() => openSource(jobId, chunkId, label?.toString())}
-      title={
-        embedded
-          ? "Open source document"
-          : "Citation (preview only — open inside Dillion to view source)"
-      }
+      title={hoverTitle}
     >
       {text}
     </button>
@@ -369,6 +416,10 @@ bun install   # or npm install / pnpm install
 bun run dev   # http://localhost:5173 — citations are no-ops outside the VDR
 bun run build # produces ./dist
 \`\`\`
+
+The scaffold ships **Tailwind v4** (\`@tailwindcss/vite\`) and **Recharts**.
+Use Tailwind utility classes anywhere; the FDD palette is exposed as theme
+tokens (\`bg-fdd-primary\`, \`text-fdd-muted\`, \`border-fdd-border\`, etc.).
 
 ## Citations
 

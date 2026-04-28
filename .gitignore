@@ -4,3 +4,5 @@ dist/
 TFG_BlackRock - Indenture (TFG) \[Executed].pdf
 .DS_Store
 dillion-report/s
+.agents/
+.cursor/skills/
