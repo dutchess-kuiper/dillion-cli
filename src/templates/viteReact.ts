@@ -388,6 +388,8 @@ export function Cite({
     <button
       type="button"
       className={\`cite \${className}\`.trim()}
+      data-job-id={jobId}
+      {...(chunkId ? { "data-chunk-id": chunkId } : {})}
       onClick={() => openSource(jobId, chunkId, label?.toString())}
       title={hoverTitle}
     >
