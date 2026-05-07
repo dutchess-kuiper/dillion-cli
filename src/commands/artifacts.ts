@@ -38,6 +38,10 @@ Common flags (share create/update):
   --version <N>             Pin to report version; combine with --latest to unpin
   --latest                  Pin to "always current version" (clears a version pin)
   --no-citations / --allow-citations   Toggle source preview for viewers
+  --require-email                       Require viewers to sign in with a verified email
+  --email-domain <d>                    Allowed sender domain (repeatable; subdomains match). Implies --require-email
+  --email-domains <a,b,c>               Same as --email-domain but comma-separated. Implies --require-email
+  --remove-email-auth                   Disable the email gate
 
 Common flags:
   --json                        Raw JSON output
@@ -275,13 +279,33 @@ async function artifactsShare(args: string[]) {
     if (!reportId || !shareId) {
       console.error(
         "Usage: dillion artifacts share update <report-id> <share-id> [options]\n" +
-          "  Options: --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations, --json",
+          "  Options: --password, --remove-password, --expires-days, --no-expiry, --version, --latest,\n" +
+          "           --no-citations, --allow-citations, --require-email, --email-domain, --email-domains,\n" +
+          "           --remove-email-auth, --json",
       );
       process.exit(1);
     }
     return artifactsShareUpdate(reportId, shareId, flags);
   }
   return artifactsShareCreate(args);
+}
+
+function formatEmailGate(domains: unknown): string {
+  if (domains === null || domains === undefined) return "off";
+  if (Array.isArray(domains)) {
+    if (domains.length === 0) return "any";
+    return domains.join(",");
+  }
+  return "off";
+}
+
+function shareStateLine(s: Record<string, unknown>): string {
+  const password = s.has_password ? "on" : "off";
+  const email = formatEmailGate(s.email_auth_domains);
+  const pin = s.pinned_version != null ? `v${s.pinned_version}` : "latest";
+  const citations = s.allow_citation_excerpts ? "on" : "off";
+  const expires = s.expires_at ? String(s.expires_at) : "none";
+  return `password:${password}  email:${email}  pin:${pin}  citations:${citations}  expires:${expires}`;
 }
 
 async function artifactsShareList(reportId: string, flags: Record<string, string | true | undefined>) {
@@ -296,14 +320,31 @@ async function artifactsShareList(reportId: string, flags: Record<string, string
   }
   for (const s of data) {
     const rev = s.revoked_at ? ` revoked ${s.revoked_at}` : " active";
-    const pin = s.pinned_version != null ? `v${s.pinned_version}` : "latest";
-    const ex = s.expires_at ? s.expires_at : "no expiry";
-    const pw = s.has_password ? "password" : "open";
-    const cite = s.allow_citation_excerpts ? "citations" : "no-citations";
     console.log(
-      `${s.id}\n  token: ${s.token.slice(0, 12)}…  ${pw}  pin:${pin}  ${cite}  ${ex}${rev}\n  created: ${s.created_at}`,
+      `${s.id}\n  token: ${s.token.slice(0, 12)}…  ${shareStateLine(s)}${rev}\n  created: ${s.created_at}`,
     );
   }
+}
+
+function collectEmailDomains(
+  flags: Record<string, string | true | undefined>,
+): string[] {
+  const out: string[] = [];
+  const single = flags["email-domain"];
+  if (typeof single === "string" && single.trim()) {
+    for (const d of single.split(",")) {
+      const cleaned = d.trim().toLowerCase().replace(/^@/, "");
+      if (cleaned && !out.includes(cleaned)) out.push(cleaned);
+    }
+  }
+  const csv = flags["email-domains"];
+  if (typeof csv === "string" && csv.trim()) {
+    for (const d of csv.split(",")) {
+      const cleaned = d.trim().toLowerCase().replace(/^@/, "");
+      if (cleaned && !out.includes(cleaned)) out.push(cleaned);
+    }
+  }
+  return out;
 }
 
 function buildShareUpdateBody(
@@ -319,6 +360,9 @@ function buildShareUpdateBody(
   const removePassword = flags["remove-password"] !== undefined;
   const noExpiry = flags["no-expiry"] !== undefined;
   const latest = flags.latest !== undefined;
+  const requireEmail = flags["require-email"] !== undefined;
+  const removeEmailAuth = flags["remove-email-auth"] !== undefined;
+  const emailDomains = collectEmailDomains(flags);
   if (noExpiry && flags["expires-days"]) {
     console.error("Cannot use both --no-expiry and --expires-days");
     process.exit(1);
@@ -327,9 +371,13 @@ function buildShareUpdateBody(
     console.error("Cannot use both --latest and --version (pick one)");
     process.exit(1);
   }
+  if (removeEmailAuth && (requireEmail || emailDomains.length > 0)) {
+    console.error("Cannot combine --remove-email-auth with --require-email / --email-domain(s)");
+    process.exit(1);
+  }
   if (forCreate) {
-    if (removePassword || noExpiry) {
-      console.error("--remove-password and --no-expiry are only for: dillion artifacts share update …");
+    if (removePassword || noExpiry || removeEmailAuth) {
+      console.error("--remove-password, --no-expiry, --remove-email-auth are only for: dillion artifacts share update …");
       process.exit(1);
     }
     if (latest) {
@@ -348,6 +396,14 @@ function buildShareUpdateBody(
   if (flags.version) body.pinned_version = parseInt(String(flags.version), 10);
   if (noCitations) body.allow_citation_excerpts = false;
   else if (allowCitations) body.allow_citation_excerpts = true;
+  // Email gate: domains imply require-email; require-email alone means [] (any verified).
+  if (removeEmailAuth) {
+    body.remove_email_auth = true;
+  } else if (emailDomains.length > 0) {
+    body.email_auth_domains = emailDomains;
+  } else if (requireEmail) {
+    body.email_auth_domains = [];
+  }
   return body;
 }
 
@@ -358,7 +414,10 @@ async function artifactsShareUpdate(
 ) {
   const body = buildShareUpdateBody(flags, false);
   if (Object.keys(body).length === 0) {
-    console.error("No changes: pass at least one of --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations");
+    console.error(
+      "No changes: pass at least one of --password, --remove-password, --expires-days, --no-expiry, --version, --latest,\n" +
+        "  --no-citations, --allow-citations, --require-email, --email-domain, --email-domains, --remove-email-auth",
+    );
     process.exit(1);
   }
   const s = await api(
@@ -370,10 +429,7 @@ async function artifactsShareUpdate(
     return;
   }
   console.log("✓ Share link updated");
-  console.log(`  has_password: ${s.has_password}`);
-  console.log(`  pinned: ${s.pinned_version ?? "latest"}`);
-  console.log(`  allow_citation_excerpts: ${s.allow_citation_excerpts}`);
-  console.log(`  expires_at: ${s.expires_at ?? "(none)"}`);
+  console.log(`  ${shareStateLine(s)}`);
 }
 
 async function artifactsShareCreate(args: string[]) {
@@ -400,8 +456,7 @@ async function artifactsShareCreate(args: string[]) {
   console.log("✓ Share link created");
   console.log(`  token:    ${res.share.token}`);
   console.log(`  url path: ${res.url_path}`);
-  if (res.share.has_password) console.log("  password: required");
-  if (res.share.expires_at) console.log(`  expires:  ${res.share.expires_at}`);
+  console.log(`  ${shareStateLine(res.share)}`);
 }
 
 async function pathExists(p: string): Promise<boolean> {
