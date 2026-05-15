@@ -101,6 +101,12 @@ dillion obligations <project-id>
 dillion obligations <project-id> --out obligations.csv
 ```
 
+### Research reports (`artifacts`)
+
+Scaffold, build, and publish interactive JSX reports (see `dillion artifacts help`).
+
+**Session replay:** If your Bastion exposes `GET /public/client-config` with `PUBLIC_POSTHOG_KEY` set (same public key as the VDR web app’s `NEXT_PUBLIC_POSTHOG_KEY`), then `dillion artifacts build` injects it automatically after `dillion auth` — no extra env vars for authors. Optional overrides: `DILLION_POSTHOG_*` or `--posthog-key`.
+
 ### Filters
 
 Get available filter facets for a project:

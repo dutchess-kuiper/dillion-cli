@@ -2,8 +2,9 @@ import { mkdir, stat } from "fs/promises";
 import { dirname, join, resolve } from "path";
 import { spawn } from "bun";
 import { api, apiUploadMultipart } from "../api";
+import { loadConfig } from "../config";
 import { parseFlags } from "../flags";
-import { requireProjectId, resolveProjectId } from "../projectContext";
+import { requireProjectId } from "../projectContext";
 import { VITE_REACT_TEMPLATE } from "../templates/viteReact";
 import { buildZip, walkDirToZipInputs } from "../zip";
 
@@ -42,6 +43,10 @@ Common flags (share create/update):
 Common flags:
   --json                        Raw JSON output
   --notes <text>                Optional version notes
+
+Dev / build (optional overrides for session replay):
+  --posthog-key <key>           PostHog project key (rarely needed — see README)
+  --posthog-host <url>          PostHog ingest host (default from server or us.i.posthog.com)
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
@@ -109,24 +114,137 @@ async function artifactsInit(args: string[]) {
 // ─── dev / build (delegates to local vite) ────────────────────────────────
 
 async function artifactsViteCommand(args: string[], mode: "dev" | "build") {
-  const { positional } = parseFlags(args);
+  const { flagsArray, positional } = parseFlagsWithPosthog(args);
   const dir = resolve(positional[0] || ".");
   if (!(await pathExists(join(dir, "package.json")))) {
     console.error(`No package.json found in ${dir}.`);
     console.error(`Run inside a directory created by 'dillion artifacts init', or pass the path.`);
     process.exit(1);
   }
+  const { env: posthogEnv, source } = await resolveArtifactPosthogEnv(flagsArray);
+  if (mode === "build" && source === "bastion" && posthogEnv.VITE_POSTHOG_KEY) {
+    console.log(
+      "✓ Session replay enabled for this build (PostHog key from your Dillion server).",
+    );
+  }
   // Prefer bunx; vite is the script `dev` or `build` in package.json.
   const cmd = mode === "dev" ? ["bunx", "vite"] : ["bunx", "vite", "build"];
   const proc = spawn({
     cmd,
     cwd: dir,
+    env: { ...process.env, ...posthogEnv },
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
   });
   const code = await proc.exited;
   if (code !== 0) process.exit(code);
+}
+
+type PosthogEnvSource = "none" | "env" | "flags" | "bastion";
+
+/**
+ * If the user is logged in (`dillion auth`), pull PostHog defaults from
+ * GET /public/client-config so publishable reports get session replay without
+ * manual env vars.
+ */
+async function resolveArtifactPosthogEnv(flags: Record<string, string>): Promise<{
+  env: Record<string, string>;
+  source: PosthogEnvSource;
+}> {
+  const fromFlagsKey = flags["posthog-key"]?.trim();
+  const fromFlagsHost = flags["posthog-host"]?.trim();
+  const fromEnvKey =
+    process.env.DILLION_POSTHOG_KEY?.trim() ||
+    process.env.VITE_POSTHOG_KEY?.trim();
+  const fromEnvHost =
+    process.env.DILLION_POSTHOG_HOST?.trim() ||
+    process.env.VITE_POSTHOG_HOST?.trim();
+
+  if (fromFlagsKey) {
+    return {
+      env: {
+        VITE_POSTHOG_KEY: fromFlagsKey,
+        VITE_POSTHOG_HOST: (fromFlagsHost || fromEnvHost || "https://us.i.posthog.com").replace(
+          /\/$/,
+          "",
+        ),
+      },
+      source: "flags",
+    };
+  }
+
+  if (fromEnvKey) {
+    return {
+      env: {
+        VITE_POSTHOG_KEY: fromEnvKey,
+        VITE_POSTHOG_HOST: (fromEnvHost || "https://us.i.posthog.com").replace(/\/$/, ""),
+      },
+      source: "env",
+    };
+  }
+
+  const cfg = await loadConfig();
+  if (cfg?.baseUrl) {
+    const base = cfg.baseUrl.replace(/\/$/, "");
+    const ac = new AbortController();
+    const tid = setTimeout(() => ac.abort(), 8000);
+    try {
+      const res = await fetch(`${base}/public/client-config`, { signal: ac.signal });
+      if (res.ok) {
+        const j = (await res.json()) as { posthogKey?: string; posthogHost?: string };
+        const k = typeof j.posthogKey === "string" ? j.posthogKey.trim() : "";
+        if (k) {
+          const h = (typeof j.posthogHost === "string" && j.posthogHost.trim()
+            ? j.posthogHost
+            : "https://us.i.posthog.com"
+          ).replace(/\/$/, "");
+          return {
+            env: { VITE_POSTHOG_KEY: k, VITE_POSTHOG_HOST: h },
+            source: "bastion",
+          };
+        }
+      }
+    } catch {
+      /* offline, timeout, or bastion without PUBLIC_POSTHOG_KEY */
+    } finally {
+      clearTimeout(tid);
+    }
+  }
+
+  return { env: {}, source: "none" };
+}
+
+/** Strip --posthog-* from args before passing positions to vite (vite expects only dir). */
+function parseFlagsWithPosthog(args: string[]): {
+  flagsArray: Record<string, string>;
+  positional: string[];
+} {
+  const stripped: string[] = [];
+  const posthogFlags: Record<string, string> = {};
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--posthog-key" || arg === "--posthog-host") {
+      const next = args[i + 1];
+      if (next && !next.startsWith("-")) {
+        const flagName = arg.slice(2);
+        posthogFlags[flagName] = next;
+        i++;
+      }
+      continue;
+    }
+    if (arg.startsWith("--posthog-key=")) {
+      posthogFlags["posthog-key"] = arg.slice("--posthog-key=".length);
+      continue;
+    }
+    if (arg.startsWith("--posthog-host=")) {
+      posthogFlags["posthog-host"] = arg.slice("--posthog-host=".length);
+      continue;
+    }
+    stripped.push(arg);
+  }
+  const { flags, positional } = parseFlags(stripped);
+  return { flagsArray: { ...flags, ...posthogFlags }, positional };
 }
 
 // ─── publish ──────────────────────────────────────────────────────────────
