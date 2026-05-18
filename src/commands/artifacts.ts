@@ -1,7 +1,7 @@
 import { mkdir, stat } from "fs/promises";
 import { dirname, join, resolve } from "path";
 import { spawn } from "bun";
-import { api, apiUploadMultipart } from "../api";
+import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
 import { parseFlags } from "../flags";
 import { requireProjectId, resolveProjectId } from "../projectContext";
 import { VITE_REACT_TEMPLATE } from "../templates/viteReact";
@@ -18,6 +18,10 @@ Authoring:
 Publishing:
   publish [dir] --title <t> -p <pid>     Publish a NEW report from dir/dist
   publish [dir] --report <report-id>     Publish a NEW VERSION of an existing report
+            (also uploads a source zip of the report tree, excluding node_modules/dist/.git; use --no-raw to skip)
+
+Download:
+  download-raw <report-id> --out <path> [--version N]   Save the source zip for a version
 
 Discovery:
   list -p <pid>                 List research reports for a project
@@ -42,6 +46,7 @@ Common flags (share create/update):
 Common flags:
   --json                        Raw JSON output
   --notes <text>                Optional version notes
+  --no-raw                      Skip uploading the source/collaboration zip on publish
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
@@ -64,6 +69,8 @@ export async function artifactsCommand(args: string[]) {
       return artifactsViteCommand(rest, "build");
     case "publish":
       return artifactsPublish(rest);
+    case "download-raw":
+      return artifactsDownloadRaw(rest);
     case "list":
       return artifactsList(rest);
     case "get":
@@ -129,12 +136,24 @@ async function artifactsViteCommand(args: string[], mode: "dev" | "build") {
   if (code !== 0) process.exit(code);
 }
 
+function excludeReportSourcePath(rel: string): boolean {
+  const n = rel.replace(/\\/g, "/");
+  if (n === "node_modules" || n.startsWith("node_modules/")) return true;
+  if (n === "dist" || n.startsWith("dist/")) return true;
+  if (n === ".git" || n.startsWith(".git/")) return true;
+  if (n.endsWith(".DS_Store")) return true;
+  return false;
+}
+
 // ─── publish ──────────────────────────────────────────────────────────────
 
 async function artifactsPublish(args: string[]) {
   const { flags, positional } = parseFlags(args);
   if (flags.help === "" || flags.h === "") {
-    console.log("Usage: dillion artifacts publish [dir] (--title <t> -p <pid>) | (--report <id>)");
+    console.log(
+      "Usage: dillion artifacts publish [dir] (--title <t> -p <pid>) | (--report <id>)\n" +
+        "  Bundles report source (excluding node_modules, dist, .git) as raw_file unless --no-raw.",
+    );
     return;
   }
   const dir = resolve(positional[0] || ".");
@@ -152,6 +171,7 @@ async function artifactsPublish(args: string[]) {
   const reportId = flags.report || flags.r;
   const json = flags.json !== undefined;
   const notes = flags.notes;
+  const skipRaw = flags["no-raw"] !== undefined;
 
   const inputs = await walkDirToZipInputs(distDir);
   if (inputs.length === 0) {
@@ -162,18 +182,46 @@ async function artifactsPublish(args: string[]) {
   const zipBlob = new Blob([new Uint8Array(zipBytes)], { type: "application/zip" });
   const totalKb = (zipBytes.length / 1024).toFixed(1);
 
+  let extraFiles: { field: string; blob: Blob; fileName: string }[] | undefined;
+  if (!skipRaw) {
+    const rawInputs = await walkDirToZipInputs(dir, { exclude: excludeReportSourcePath });
+    if (rawInputs.length > 0) {
+      const rawZip = buildZip(rawInputs);
+      const rawKb = (rawZip.length / 1024).toFixed(1);
+      if (!json) {
+        console.log(`Packaging source for collaboration (${rawInputs.length} files, ${rawKb} KiB zip)…`);
+      }
+      extraFiles = [
+        {
+          field: "raw_file",
+          blob: new Blob([new Uint8Array(rawZip)], { type: "application/zip" }),
+          fileName: "source.zip",
+        },
+      ];
+    } else if (!json) {
+      console.log("(no extra source files to upload — skipped raw bundle)");
+    }
+  }
+
   if (reportId) {
     if (!json) console.log(`Uploading new version to report ${reportId} (${inputs.length} files, ${totalKb} KiB)…`);
     const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/versions`, {
       fileBlob: zipBlob,
       fileName: "dist.zip",
       fields: { ...(notes ? { notes } : {}) },
+      extraFiles,
     });
     if (json) {
       console.log(JSON.stringify(res, null, 2));
       return;
     }
-    console.log(`✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)})`);
+    const rawNote =
+      res.raw_bundle_byte_size != null
+        ? `, source ${formatBytes(res.raw_bundle_byte_size)}`
+        : "";
+    console.log(
+      `✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)}${rawNote})`,
+    );
     return;
   }
 
@@ -198,6 +246,7 @@ async function artifactsPublish(args: string[]) {
         ...(flags.description ? { description: flags.description } : {}),
         ...(notes ? { notes } : {}),
       },
+      extraFiles,
     }
   );
 
@@ -206,11 +255,40 @@ async function artifactsPublish(args: string[]) {
     return;
   }
   const report = res.report;
+  const v0 = report.versions[0];
+  const rawNote =
+    v0?.raw_bundle_byte_size != null ? `, source ${formatBytes(v0.raw_bundle_byte_size)}` : "";
   console.log(`✓ Created report ${report.id}`);
   console.log(`  title:   ${report.title}`);
   console.log(`  version: v${report.current_version}`);
-  console.log(`  files:   ${report.versions[0]?.file_count ?? "?"}`);
-  console.log(`  size:    ${formatBytes(report.versions[0]?.byte_size ?? 0)}`);
+  console.log(`  files:   ${v0?.file_count ?? "?"}`);
+  console.log(`  size:    ${formatBytes(v0?.byte_size ?? 0)}${rawNote}`);
+}
+
+async function artifactsDownloadRaw(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  if (flags.help === "" || flags.h === "") {
+    console.log("Usage: dillion artifacts download-raw <report-id> --out <path> [--version N]");
+    return;
+  }
+  const reportId = positional[0];
+  if (!reportId) {
+    console.error("Usage: dillion artifacts download-raw <report-id> --out <path> [--version N]");
+    process.exit(1);
+  }
+  const outFlag = flags.out ?? flags.o;
+  if (!outFlag || typeof outFlag !== "string") {
+    console.error("--out <path> (or -o) is required");
+    process.exit(1);
+  }
+  let q = "";
+  const vNum = flags.version ?? flags.v;
+  if (typeof vNum === "string" && vNum.trim().length > 0) {
+    q = `?version=${encodeURIComponent(vNum.trim())}`;
+  }
+  const outPath = resolve(String(outFlag));
+  await apiDownloadToFile(`/research-reports/${encodeURIComponent(reportId)}/raw${q}`, outPath);
+  console.log(`✓ Wrote ${outPath}`);
 }
 
 // ─── list / get ───────────────────────────────────────────────────────────
@@ -254,7 +332,11 @@ async function artifactsGet(args: string[]) {
   console.log(`  current:  v${data.current_version}`);
   console.log(`  versions:`);
   for (const v of data.versions ?? []) {
-    console.log(`    v${v.version_number}  ${formatBytes(v.byte_size ?? 0)}  ${v.file_count ?? "?"} files  ${v.created_at?.slice(0, 19) ?? ""}`);
+    const raw =
+      v.raw_bundle_byte_size != null ? `  +source ${formatBytes(v.raw_bundle_byte_size)}` : "";
+    console.log(
+      `    v${v.version_number}  ${formatBytes(v.byte_size ?? 0)}  ${v.file_count ?? "?"} files  ${v.created_at?.slice(0, 19) ?? ""}${raw}`,
+    );
   }
 }
 
