@@ -203,23 +203,25 @@ async function artifactsPublish(args: string[]) {
     if (rawInputs.length > 0) {
       const rawZip = buildZip(rawInputs);
       if (rawZip.length > MAX_RAW_BUNDLE_ZIP_BYTES) {
-        console.error(
-          `Source zip is ${formatBytes(rawZip.length)} (limit ${formatBytes(MAX_RAW_BUNDLE_ZIP_BYTES)}). ` +
-            `Use --no-raw or remove large files from the report tree.`,
-        );
-        process.exit(1);
+        if (!json) {
+          console.warn(
+            `Skipping source upload: zip is ${formatBytes(rawZip.length)} (limit ${formatBytes(MAX_RAW_BUNDLE_ZIP_BYTES)}). ` +
+              `Publishing report only.`,
+          );
+        }
+      } else {
+        const rawKb = (rawZip.length / 1024).toFixed(1);
+        if (!json) {
+          console.log(`Packaging source for collaboration (${rawInputs.length} files, ${rawKb} KiB zip)…`);
+        }
+        extraFiles = [
+          {
+            field: "raw_file",
+            blob: new Blob([new Uint8Array(rawZip)], { type: "application/zip" }),
+            fileName: "source.zip",
+          },
+        ];
       }
-      const rawKb = (rawZip.length / 1024).toFixed(1);
-      if (!json) {
-        console.log(`Packaging source for collaboration (${rawInputs.length} files, ${rawKb} KiB zip)…`);
-      }
-      extraFiles = [
-        {
-          field: "raw_file",
-          blob: new Blob([new Uint8Array(rawZip)], { type: "application/zip" }),
-          fileName: "source.zip",
-        },
-      ];
     } else if (!json) {
       console.log("(no extra source files to upload — skipped raw bundle)");
     }
