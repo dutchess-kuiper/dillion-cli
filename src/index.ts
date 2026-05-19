@@ -83,6 +83,12 @@ Commands:
   artifacts get <report-id>    Show report + versions
   artifacts share <report-id>  Create link (or: share list / share update, see artifacts help)
 
+  share-links create -p <pid>  Create multi-artifact share link (see share-links --help)
+  share-links list -p <pid>    List share links for a project
+  share-links get <link-id>    Show a share link with items
+  share-links update <link-id> Change slug, password, expiry, email allowlist, items
+  share-links revoke <link-id> Soft-revoke a share link
+
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
   --json               Output raw JSON
@@ -205,6 +211,10 @@ async function main() {
     case "artifacts": {
       const { artifactsCommand } = await import("./commands/artifacts");
       return artifactsCommand(rest);
+    }
+    case "share-links": {
+      const { shareLinksCommand } = await import("./commands/shareLinks");
+      return shareLinksCommand(rest);
     }
     default:
       console.error(`Unknown command: ${command}`);
