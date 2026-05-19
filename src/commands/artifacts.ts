@@ -18,7 +18,7 @@ Authoring:
 Publishing:
   publish [dir] --title <t> -p <pid>     Publish a NEW report from dir/dist
   publish [dir] --report <report-id>     Publish a NEW VERSION of an existing report
-            (also uploads a source zip of the report tree, excluding node_modules/dist/.git; use --no-raw to skip)
+            (also uploads a source zip, excluding secrets/node_modules/dist/.git; use --no-raw to skip)
 
 Download:
   download-raw <report-id> --out <path> [--version N]   Save the source zip for a version
@@ -50,6 +50,9 @@ Common flags:
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
+
+/** Match ingestion backend MAX_RAW_BUNDLE_ZIP_BYTES. */
+const MAX_RAW_BUNDLE_ZIP_BYTES = 32 * 1024 * 1024;
 
 export async function artifactsCommand(args: string[]) {
   const sub = args[0];
@@ -138,10 +141,22 @@ async function artifactsViteCommand(args: string[], mode: "dev" | "build") {
 
 function excludeReportSourcePath(rel: string): boolean {
   const n = rel.replace(/\\/g, "/");
+  const base = n.includes("/") ? n.slice(n.lastIndexOf("/") + 1) : n;
+
   if (n === "node_modules" || n.startsWith("node_modules/")) return true;
   if (n === "dist" || n.startsWith("dist/")) return true;
   if (n === ".git" || n.startsWith(".git/")) return true;
+  if (n === ".aws" || n.startsWith(".aws/")) return true;
   if (n.endsWith(".DS_Store")) return true;
+
+  if (n === ".env" || n.startsWith(".env.")) return true;
+  if (base === ".npmrc" || base === ".yarnrc" || base === ".pnp.cjs") return true;
+
+  if (/\.(pem|key|p12|pfx|keystore)$/i.test(n)) return true;
+  if (base === "id_rsa" || base === "id_ed25519" || base === "id_ecdsa") return true;
+  if (/^service[-_]?account.*\.json$/i.test(base)) return true;
+  if (base === "credentials.json" || base === "secrets.json") return true;
+
   return false;
 }
 
@@ -152,7 +167,7 @@ async function artifactsPublish(args: string[]) {
   if (flags.help === "" || flags.h === "") {
     console.log(
       "Usage: dillion artifacts publish [dir] (--title <t> -p <pid>) | (--report <id>)\n" +
-        "  Bundles report source (excluding node_modules, dist, .git) as raw_file unless --no-raw.",
+        "  Bundles report source (excluding secrets, node_modules, dist, .git) as raw_file unless --no-raw.",
     );
     return;
   }
@@ -187,6 +202,13 @@ async function artifactsPublish(args: string[]) {
     const rawInputs = await walkDirToZipInputs(dir, { exclude: excludeReportSourcePath });
     if (rawInputs.length > 0) {
       const rawZip = buildZip(rawInputs);
+      if (rawZip.length > MAX_RAW_BUNDLE_ZIP_BYTES) {
+        console.error(
+          `Source zip is ${formatBytes(rawZip.length)} (limit ${formatBytes(MAX_RAW_BUNDLE_ZIP_BYTES)}). ` +
+            `Use --no-raw or remove large files from the report tree.`,
+        );
+        process.exit(1);
+      }
       const rawKb = (rawZip.length / 1024).toFixed(1);
       if (!json) {
         console.log(`Packaging source for collaboration (${rawInputs.length} files, ${rawKb} KiB zip)…`);
@@ -255,14 +277,18 @@ async function artifactsPublish(args: string[]) {
     return;
   }
   const report = res.report;
-  const v0 = report.versions[0];
-  const rawNote =
-    v0?.raw_bundle_byte_size != null ? `, source ${formatBytes(v0.raw_bundle_byte_size)}` : "";
+  const v0 = report.versions?.[0];
   console.log(`✓ Created report ${report.id}`);
   console.log(`  title:   ${report.title}`);
   console.log(`  version: v${report.current_version}`);
-  console.log(`  files:   ${v0?.file_count ?? "?"}`);
-  console.log(`  size:    ${formatBytes(v0?.byte_size ?? 0)}${rawNote}`);
+  if (!v0) {
+    console.log(`  (version details unavailable)`);
+    return;
+  }
+  const rawNote =
+    v0.raw_bundle_byte_size != null ? `, source ${formatBytes(v0.raw_bundle_byte_size)}` : "";
+  console.log(`  files:   ${v0.file_count ?? "?"}`);
+  console.log(`  size:    ${formatBytes(v0.byte_size ?? 0)}${rawNote}`);
 }
 
 async function artifactsDownloadRaw(args: string[]) {
