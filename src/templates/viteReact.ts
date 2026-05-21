@@ -499,6 +499,12 @@ To publish a new version of an existing report:
 dillion artifacts publish --report <report-id>
 \`\`\`
 
+Each publish also uploads a **source zip** of this directory (excluding \`node_modules\`, \`dist\`, \`.git\`) so teammates can sync the Vite project. Download it with:
+
+\`\`\`sh
+dillion artifacts download-raw <report-id> --out ./report-source.zip
+\`\`\`
+
 To create a share link (optional password; source document preview is on by default, add \`--no-citations\` to disable):
 
 \`\`\`sh
