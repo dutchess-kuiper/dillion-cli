@@ -1,7 +1,25 @@
-import { basename } from "path";
+import { basename, dirname } from "path";
 import { getConfig } from "./config";
 
 let _config: { apiKey: string; baseUrl: string } | null = null;
+
+/** Parse FastAPI / bastion JSON error bodies into a user-facing message. */
+function parseApiErrorMessage(err: string): string {
+  try {
+    const j = JSON.parse(err) as {
+      detail?: string | { msg?: string }[];
+      error?: string;
+    };
+    if (typeof j.detail === "string") return j.detail;
+    if (Array.isArray(j.detail)) {
+      return j.detail.map((e) => e.msg ?? JSON.stringify(e)).join("; ");
+    }
+    if (j.error) return j.error;
+  } catch {
+    // use raw body
+  }
+  return err;
+}
 
 async function config() {
   if (!_config) _config = await getConfig();
@@ -30,13 +48,7 @@ export async function api(
 
   if (!res.ok) {
     const err = await res.text();
-    let msg: string;
-    try {
-      msg = JSON.parse(err).error;
-    } catch {
-      msg = err;
-    }
-    console.error(`Error ${res.status}: ${msg}`);
+    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
     process.exit(1);
   }
 
@@ -69,13 +81,7 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
 
   if (!res.ok) {
     const err = await res.text();
-    let msg: string;
-    try {
-      msg = JSON.parse(err).error;
-    } catch {
-      msg = err;
-    }
-    console.error(`Error ${res.status}: ${msg}`);
+    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
     process.exit(1);
   }
 
@@ -92,11 +98,16 @@ export async function apiUploadMultipart(
     fileBlob: Blob;
     fileName: string;
     fields?: Record<string, string | undefined>;
+    /** Optional second multipart file (e.g. `raw_file` for report source bundle). */
+    extraFiles?: { field: string; blob: Blob; fileName: string }[];
   }
 ): Promise<any> {
   const { apiKey, baseUrl } = await config();
   const formData = new FormData();
   formData.append("file", options.fileBlob, options.fileName);
+  for (const ef of options.extraFiles ?? []) {
+    formData.append(ef.field, ef.blob, ef.fileName);
+  }
   for (const [k, v] of Object.entries(options.fields ?? {})) {
     if (v !== undefined && v !== null) formData.append(k, v);
   }
@@ -109,16 +120,26 @@ export async function apiUploadMultipart(
 
   if (!res.ok) {
     const err = await res.text();
-    let msg: string;
-    try {
-      msg = JSON.parse(err).error;
-    } catch {
-      msg = err;
-    }
-    console.error(`Error ${res.status}: ${msg}`);
+    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
     process.exit(1);
   }
   return res.json();
+}
+
+/** GET binary from bastion (e.g. research report source zip). Writes to `outPath`. */
+export async function apiDownloadToFile(path: string, outPath: string): Promise<void> {
+  const { apiKey, baseUrl } = await config();
+  const res = await fetch(`${baseUrl}${path}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
+    process.exit(1);
+  }
+  await Bun.mkdir(dirname(outPath), { recursive: true });
+  await Bun.write(outPath, res);
 }
 
 /** GET bastion `/projects` (optional `name` substring filter). */
