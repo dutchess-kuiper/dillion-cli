@@ -86,6 +86,42 @@ function parsePipeList(raw: string | undefined): string[] {
   return raw.split("|").map((s) => s.trim());
 }
 
+const SHARE_LINK_PASSWORD_MIN_LEN = 8;
+
+function parsePinnedVersion(version: string, index: number): number {
+  if (!/^\d+$/.test(version)) {
+    console.error(`--versions entry ${index + 1} (${version}) is not a number`);
+    process.exit(1);
+  }
+  return parseInt(version, 10);
+}
+
+function applyPasswordFlag(
+  body: Record<string, unknown>,
+  password: unknown,
+): void {
+  if (password === undefined) return;
+  const pw = String(password);
+  if (pw.length < SHARE_LINK_PASSWORD_MIN_LEN) {
+    console.error("--password must be at least 8 characters");
+    process.exit(1);
+  }
+  body.password = pw;
+}
+
+function applyExpiresDaysFlag(
+  body: Record<string, unknown>,
+  expiresDays: unknown,
+): void {
+  if (expiresDays === undefined) return;
+  const days = parseInt(String(expiresDays), 10);
+  if (Number.isNaN(days)) {
+    console.error("--expires-days must be a number");
+    process.exit(1);
+  }
+  body.expires_in_days = days;
+}
+
 function buildItemsArray(
   reportIds: string[],
   labelsRaw: string | undefined,
@@ -111,12 +147,7 @@ function buildItemsArray(
     if (label) item.display_label = label;
     const version = versions[idx];
     if (version) {
-      const n = parseInt(version, 10);
-      if (Number.isNaN(n)) {
-        console.error(`--versions entry ${idx + 1} (${version}) is not a number`);
-        process.exit(1);
-      }
-      item.pinned_version = n;
+      item.pinned_version = parsePinnedVersion(version, idx);
     }
     return item;
   });
@@ -158,10 +189,8 @@ async function shareLinksCreate(args: string[]) {
   };
   if (flags.slug) body.slug = String(flags.slug);
   if (flags.description) body.description = String(flags.description);
-  if (flags.password) body.password = String(flags.password);
-  if (flags["expires-days"]) {
-    body.expires_in_days = parseInt(String(flags["expires-days"]), 10);
-  }
+  applyPasswordFlag(body, flags.password);
+  applyExpiresDaysFlag(body, flags["expires-days"]);
   const domains = parseCommaList(
     typeof flags.domains === "string" ? flags.domains : undefined,
   );
@@ -311,11 +340,9 @@ async function shareLinksUpdate(args: string[]) {
   if (flags.title) body.title = String(flags.title);
   if (flags.description) body.description = String(flags.description);
   if (flags.slug) body.slug = String(flags.slug);
-  if (flags.password) body.password = String(flags.password);
+  applyPasswordFlag(body, flags.password);
   if (removePassword) body.remove_password = true;
-  if (flags["expires-days"]) {
-    body.expires_in_days = parseInt(String(flags["expires-days"]), 10);
-  }
+  applyExpiresDaysFlag(body, flags["expires-days"]);
   if (noExpiry) body.clear_expiry = true;
   if (noCitations) body.allow_citation_excerpts = false;
   else if (allowCitations) body.allow_citation_excerpts = true;
