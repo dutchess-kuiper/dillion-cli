@@ -1,3 +1,4 @@
+import { mkdir, writeFile } from "fs/promises";
 import { basename, dirname } from "path";
 import { getConfig } from "./config";
 
@@ -138,8 +139,8 @@ export async function apiDownloadToFile(path: string, outPath: string): Promise<
     console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
     process.exit(1);
   }
-  await Bun.mkdir(dirname(outPath), { recursive: true });
-  await Bun.write(outPath, res);
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, Buffer.from(await res.arrayBuffer()));
 }
 
 /** GET bastion `/projects` (optional `name` substring filter). */
