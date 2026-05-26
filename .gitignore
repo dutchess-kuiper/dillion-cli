@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+.local-replay-test/
 TFG_BlackRock - Indenture (TFG) \[Executed].pdf
 .DS_Store
 dillion-report/s

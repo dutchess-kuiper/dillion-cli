@@ -24,8 +24,7 @@ const PACKAGE_JSON = `{
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.12.7",
-    "posthog-js": "^1.369.2"
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
@@ -129,9 +128,6 @@ const MAIN_TSX = `import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles.css";
-import { initArtifactPostHog } from "./lib/posthog-artifact";
-
-initArtifactPostHog();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -140,52 +136,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 );
 `;
 
-const POSTHOG_ARTIFACT_TS = `import posthog from "posthog-js";
-
-/**
- * Session replay in the VDR / share viewer (sandboxed iframe). Requires
- * VITE_POSTHOG_KEY at build time — \`dillion artifacts build\` injects it from
- * your Dillion server (see README) or from env / flags.
- *
- * Share/member viewers use sandbox="allow-scripts" WITHOUT allow-same-origin,
- * so cookies/localStorage throw SecurityError — use memory + cookieless_mode.
- *
- * Do NOT set recordCrossOriginIframes here. That flag is for the parent page
- * only; in a sandboxed iframe it routes replay via postMessage to the parent,
- * which fails for null-origin embeds and you get an empty iframe in replays.
- * Instead, record directly to PostHog and filter replays by this iframe URL
- * (contains /api/share/reports/…/a/… or /api/research-reports/…/a/…).
- */
-export function initArtifactPostHog(): void {
-  const key = import.meta.env.VITE_POSTHOG_KEY;
-  if (!key) return;
-
-  posthog.init(key, {
-    api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
-    defaults: "2026-01-30",
-    persistence: "memory",
-    cookieless_mode: "always",
-    capture_pageview: false,
-    session_recording: {
-      maskAllInputs: true,
-    },
-  });
-
-  posthog.capture("$pageview", { $current_url: window.location.href });
-  posthog.startSessionRecording();
-}
-`;
-
 const VITE_ENV_D_TS = `/// <reference types="vite/client" />
-
-interface ImportMetaEnv {
-  readonly VITE_POSTHOG_KEY?: string;
-  readonly VITE_POSTHOG_HOST?: string;
-}
-
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
 `;
 
 const STYLES_CSS = `@import "tailwindcss";
@@ -482,23 +433,11 @@ The component sends a \`postMessage\` to the parent shell when clicked; the
 parent resolves the citation and opens the source document. There is **no
 API key** in this bundle.
 
-## Session replay (optional)
+## Session replay
 
-When your organization configures **PostHog** on the Bastion
-(\`PUBLIC_POSTHOG_KEY\` and optional \`PUBLIC_POSTHOG_HOST\`, matching the VDR
-web app’s \`NEXT_PUBLIC_POSTHOG_*\`), running:
-
-\`\`\`sh
-dillion auth <your-api-key>   # once — points CLI at your Bastion
-dillion artifacts build
-\`\`\`
-
-…automatically bakes the public project key into the report **without** authors
-setting env vars. Shared links then produce usable PostHog replays (iframe
-stitching is handled by the VDR shell).
-
-Advanced overrides: \`DILLION_POSTHOG_KEY\` / \`DILLION_POSTHOG_HOST\`, or
-\`dillion artifacts build --posthog-key …\`.
+No PostHog setup in this bundle. When viewers open a **share link** or in-app
+report page, the VDR shell records session replay on the parent page (same model
+as the ONDA memo) — including this iframe — after the viewer email gate.
 
 ## Publish
 
@@ -531,7 +470,6 @@ export const VITE_REACT_TEMPLATE: TemplateFile[] = [
   { path: "tsconfig.json", contents: TSCONFIG },
   { path: "index.html", contents: INDEX_HTML },
   { path: "src/main.tsx", contents: MAIN_TSX },
-  { path: "src/lib/posthog-artifact.ts", contents: POSTHOG_ARTIFACT_TS },
   { path: "src/vite-env.d.ts", contents: VITE_ENV_D_TS },
   { path: "src/styles.css", contents: STYLES_CSS },
   { path: "src/App.tsx", contents: APP_TSX },

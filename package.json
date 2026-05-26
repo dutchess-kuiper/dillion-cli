@@ -1,10 +1,10 @@
 {
   "name": "dillion-cli",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "type": "module",
   "private": true,
   "bin": {
-    "dillion": "./src/index.ts"
+    "dillion": "src/index.ts"
   },
   "scripts": {
     "dev": "bun src/index.ts",
@@ -16,5 +16,23 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "description": "Command-line interface for the Dillion Bastion API.",
+  "main": "index.js",
+  "dependencies": {
+    "bun-types": "^1.3.11",
+    "typescript": "^5",
+    "undici-types": "^7.18.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/enjidotin/dillion-cli.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/enjidotin/dillion-cli/issues"
+  },
+  "homepage": "https://github.com/enjidotin/dillion-cli#readme"
 }

@@ -105,7 +105,7 @@ dillion obligations <project-id> --out obligations.csv
 
 Scaffold, build, and publish interactive JSX reports (see `dillion artifacts help`).
 
-**Session replay:** If your Bastion exposes `GET /public/client-config` with `PUBLIC_POSTHOG_KEY` set (same public key as the VDR web app’s `NEXT_PUBLIC_POSTHOG_KEY`), then `dillion artifacts build` injects it automatically after `dillion auth` — no extra env vars for authors. Optional overrides: `DILLION_POSTHOG_*` or `--posthog-key`.
+Session replay is handled by the VDR web app on the share/member viewer page (same as ONDA memos) — nothing to configure in the report bundle.
 
 ### Filters
 
