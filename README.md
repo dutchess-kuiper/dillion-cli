@@ -105,7 +105,9 @@ dillion obligations <project-id> --out obligations.csv
 
 Scaffold, build, and publish interactive JSX reports (see `dillion artifacts help`).
 
-Session replay is handled by the VDR web app on the share/member viewer page (same as ONDA memos) — nothing to configure in the report bundle.
+Report bundles are **classic IIFE builds** loaded in a **same-origin iframe** on the VDR share/member viewer — no sandbox, no PostHog dependency in the bundle.
+
+**Session replay** is handled entirely by the VDR web app after the viewer email gate (same model as ONDA memos). Nothing to configure in the report project — republish with CLI v0.1.20+ to drop PostHog from older bundles.
 
 ### Filters
 

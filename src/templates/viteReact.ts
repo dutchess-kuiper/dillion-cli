@@ -45,13 +45,11 @@ import tailwindcss from "@tailwindcss/vite";
 // Relative base so the bundle works no matter where it's mounted
 // (member viewer, share link, local preview).
 //
-// The share viewer renders the report inside sandbox="allow-scripts" (no
-// allow-same-origin), so the iframe document has a null origin. That breaks
-// two default Vite behaviors: ES-module scripts are fetched in CORS mode and
-// get blocked (no ACAO for null), and \`crossorigin\` on <script>/<link> tags
-// disables credentialed requests so the share-session cookie never flows.
-// We emit a classic IIFE bundle and strip crossorigin/type="module" from the
-// entry tags — classic loads aren't CORS-gated and send cookies per SameSite.
+// Report bundles ship as a classic IIFE build (not ES modules) so they load
+// reliably inside the VDR share/member viewer iframe: we strip crossorigin from
+// entry tags and add defer so scripts run after #root exists. The viewer uses a
+// same-origin iframe (no sandbox), so the parent shell can record session replay
+// and the share-session cookie flows on credentialed asset requests.
 function dillionShareCompat() {
   return {
     name: "dillion-share-compat",
@@ -297,7 +295,8 @@ export default function App() {
 const BRIDGE_TS = `/**
  * Dillion citation bridge.
  *
- * Runs inside a sandboxed iframe inside the Dillion VDR. Clicking a citation
+ * Runs inside the Dillion VDR report iframe (same-origin with the viewer shell).
+ * Clicking a citation
  * sends a structured message to the parent shell, which validates project
  * access and opens the source document with bbox highlights.
  *
@@ -412,7 +411,7 @@ dist
 const README = `# Dillion Research Report
 
 Scaffold for an interactive, JSX-based research report that renders inside the
-Dillion VDR (sandboxed iframe).
+Dillion VDR (share link or in-app member viewer — same-origin iframe).
 
 ## Setup
 
