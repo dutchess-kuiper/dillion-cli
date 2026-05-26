@@ -146,20 +146,28 @@ const POSTHOG_ARTIFACT_TS = `import posthog from "posthog-js";
  * Session replay in the VDR / share viewer (sandboxed iframe). Requires
  * VITE_POSTHOG_KEY at build time — \`dillion artifacts build\` injects it from
  * your Dillion server (see README) or from env / flags.
- * recordCrossOriginIframes: child events attach to the parent replay.
+ *
+ * Share/member viewers use sandbox="allow-scripts" WITHOUT allow-same-origin,
+ * so document.cookie and localStorage throw SecurityError. Use memory
+ * persistence only; wrap init so a PostHog failure never blocks React mount.
  */
 export function initArtifactPostHog(): void {
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (!key) return;
 
-  posthog.init(key, {
-    api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
-    defaults: "2026-01-30",
-    capture_pageview: false,
-    session_recording: {
-      recordCrossOriginIframes: true,
-    },
-  });
+  try {
+    posthog.init(key, {
+      api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
+      defaults: "2026-01-30",
+      capture_pageview: false,
+      persistence: "memory",
+      session_recording: {
+        recordCrossOriginIframes: true,
+      },
+    });
+  } catch {
+    // sandboxed iframe — cookies/storage unavailable; report must still render
+  }
 }
 `;
 
