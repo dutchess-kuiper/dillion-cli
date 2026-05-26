@@ -148,26 +148,31 @@ const POSTHOG_ARTIFACT_TS = `import posthog from "posthog-js";
  * your Dillion server (see README) or from env / flags.
  *
  * Share/member viewers use sandbox="allow-scripts" WITHOUT allow-same-origin,
- * so document.cookie and localStorage throw SecurityError. Use memory
- * persistence only; wrap init so a PostHog failure never blocks React mount.
+ * so cookies/localStorage throw SecurityError — use memory + cookieless_mode.
+ *
+ * Do NOT set recordCrossOriginIframes here. That flag is for the parent page
+ * only; in a sandboxed iframe it routes replay via postMessage to the parent,
+ * which fails for null-origin embeds and you get an empty iframe in replays.
+ * Instead, record directly to PostHog and filter replays by this iframe URL
+ * (contains /api/share/reports/…/a/… or /api/research-reports/…/a/…).
  */
 export function initArtifactPostHog(): void {
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (!key) return;
 
-  try {
-    posthog.init(key, {
-      api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
-      defaults: "2026-01-30",
-      capture_pageview: false,
-      persistence: "memory",
-      session_recording: {
-        recordCrossOriginIframes: true,
-      },
-    });
-  } catch {
-    // sandboxed iframe — cookies/storage unavailable; report must still render
-  }
+  posthog.init(key, {
+    api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com",
+    defaults: "2026-01-30",
+    persistence: "memory",
+    cookieless_mode: "always",
+    capture_pageview: false,
+    session_recording: {
+      maskAllInputs: true,
+    },
+  });
+
+  posthog.capture("$pageview", { $current_url: window.location.href });
+  posthog.startSessionRecording();
 }
 `;
 
