@@ -141,6 +141,25 @@ Unzip and run locally:
 unzip report-source.zip -d ./report && cd ./report && bun install && dillion artifacts dev
 ```
 
+#### Attached PDF (share viewer "Download as PDF")
+
+Attach a pre-rendered PDF so the share viewer's **Download as PDF** button serves it directly (instead of generating one server-side). Optional — without it the generated-PDF flow still works.
+
+```sh
+# Attach on publish (max 32 MiB)
+dillion artifacts publish ./report --report <report-id> --pdf ./report.pdf
+
+# Replace or attach after the report is live — no republish, no new version
+dillion artifacts attach-pdf <report-id> --pdf ./updated.pdf
+
+# Remove (viewer falls back to generated PDF)
+dillion artifacts attach-pdf <report-id> --remove
+
+# Target a specific version (default: current). Share links pinned to a
+# different version keep that version's PDF.
+dillion artifacts attach-pdf <report-id> --pdf ./v1.pdf --version 1
+```
+
 #### Single-report share links
 
 Create one password-protected link for a single published report. The link follows **latest** by default — republishing with `--report <id>` updates what viewers see at the same URL.

@@ -90,7 +90,7 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
 }
 
 /**
- * POST multipart to an arbitrary bastion path with optional extra form fields.
+ * Send multipart to an arbitrary bastion path with optional extra form fields.
  * `file` is required (a Bun.BunFile or Blob). Returns parsed JSON.
  */
 export async function apiUploadMultipart(
@@ -98,6 +98,10 @@ export async function apiUploadMultipart(
   options: {
     fileBlob: Blob;
     fileName: string;
+    /** Multipart field name for the main file (default: `file`). */
+    fileField?: string;
+    /** HTTP method (default: POST; PUT for in-place updates like attach-pdf). */
+    method?: "POST" | "PUT";
     fields?: Record<string, string | undefined>;
     /** Optional second multipart file (e.g. `raw_file` for report source bundle). */
     extraFiles?: { field: string; blob: Blob; fileName: string }[];
@@ -105,7 +109,7 @@ export async function apiUploadMultipart(
 ): Promise<any> {
   const { apiKey, baseUrl } = await config();
   const formData = new FormData();
-  formData.append("file", options.fileBlob, options.fileName);
+  formData.append(options.fileField ?? "file", options.fileBlob, options.fileName);
   for (const ef of options.extraFiles ?? []) {
     formData.append(ef.field, ef.blob, ef.fileName);
   }
@@ -114,7 +118,7 @@ export async function apiUploadMultipart(
   }
 
   const res = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
+    method: options.method ?? "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: formData,
   });

@@ -1,5 +1,5 @@
 import { mkdir, stat } from "fs/promises";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
 import { parseFlags } from "../flags";
@@ -19,6 +19,11 @@ Publishing:
   publish [dir] --title <t> -p <pid>     Publish a NEW report from dir/dist
   publish [dir] --report <report-id>     Publish a NEW VERSION of an existing report
             (also uploads a source zip, excluding secrets/node_modules/dist/.git; use --no-raw to skip)
+            (--pdf <path> attaches a PDF served by the share viewer's Download button)
+  attach-pdf <report-id> --pdf <path> [--version N]
+                                Attach/replace the PDF on a live version (no republish)
+  attach-pdf <report-id> --remove [--version N]
+                                Remove the attached PDF from a version
 
 Download:
   download-raw <report-id> --out <path> [--version N]   Save the source zip for a version
@@ -47,12 +52,16 @@ Common flags:
   --json                        Raw JSON output
   --notes <text>                Optional version notes
   --no-raw                      Skip uploading the source/collaboration zip on publish
+  --pdf <path>                  Attach a pre-rendered PDF on publish (share viewer downloads it
+                                directly instead of generating one)
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
 
 /** Match ingestion backend MAX_RAW_BUNDLE_ZIP_BYTES. */
 const MAX_RAW_BUNDLE_ZIP_BYTES = 32 * 1024 * 1024;
+/** Match ingestion backend MAX_ATTACHED_PDF_BYTES (separate cap from report+raw). */
+const MAX_ATTACHED_PDF_BYTES = 32 * 1024 * 1024;
 
 export async function artifactsCommand(args: string[]) {
   const sub = args[0];
@@ -72,6 +81,8 @@ export async function artifactsCommand(args: string[]) {
       return artifactsViteCommand(rest, "build");
     case "publish":
       return artifactsPublish(rest);
+    case "attach-pdf":
+      return artifactsAttachPdf(rest);
     case "download-raw":
       return artifactsDownloadRaw(rest);
     case "list":
@@ -187,6 +198,7 @@ async function artifactsPublish(args: string[]) {
   const json = flags.json !== undefined;
   const notes = flags.notes;
   const skipRaw = flags["no-raw"] !== undefined;
+  const pdfPath = flags.pdf;
 
   const inputs = await walkDirToZipInputs(distDir);
   if (inputs.length === 0) {
@@ -227,6 +239,17 @@ async function artifactsPublish(args: string[]) {
     }
   }
 
+  if (pdfPath !== undefined) {
+    // Invalid --pdf reports an error but does NOT abort the publish.
+    const pdfEntry = await readAttachedPdfEntry(pdfPath);
+    if (pdfEntry) {
+      if (!json) console.log(`Attaching PDF (${formatBytes(pdfEntry.blob.size)})…`);
+      (extraFiles ??= []).push(pdfEntry);
+    } else {
+      console.error("Publishing without attached PDF.");
+    }
+  }
+
   if (reportId) {
     if (!json) console.log(`Uploading new version to report ${reportId} (${inputs.length} files, ${totalKb} KiB)…`);
     const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/versions`, {
@@ -243,8 +266,10 @@ async function artifactsPublish(args: string[]) {
       res.raw_bundle_byte_size != null
         ? `, source ${formatBytes(res.raw_bundle_byte_size)}`
         : "";
+    const pdfNote =
+      res.pdf_byte_size != null ? `, pdf ${formatBytes(res.pdf_byte_size)}` : "";
     console.log(
-      `✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)}${rawNote})`,
+      `✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)}${rawNote}${pdfNote})`,
     );
     return;
   }
@@ -289,8 +314,110 @@ async function artifactsPublish(args: string[]) {
   }
   const rawNote =
     v0.raw_bundle_byte_size != null ? `, source ${formatBytes(v0.raw_bundle_byte_size)}` : "";
+  const pdfNote = v0.pdf_byte_size != null ? `, pdf ${formatBytes(v0.pdf_byte_size)}` : "";
   console.log(`  files:   ${v0.file_count ?? "?"}`);
-  console.log(`  size:    ${formatBytes(v0.byte_size ?? 0)}${rawNote}`);
+  console.log(`  size:    ${formatBytes(v0.byte_size ?? 0)}${rawNote}${pdfNote}`);
+}
+
+/**
+ * Read + validate a `--pdf` path into an `extraFiles` entry.
+ * Returns null (after printing an error) when the file is unusable.
+ */
+async function readAttachedPdfEntry(
+  pdfPath: string,
+): Promise<{ field: string; blob: Blob; fileName: string } | null> {
+  if (!pdfPath || typeof pdfPath !== "string") {
+    console.error("--pdf requires a path to a .pdf file.");
+    return null;
+  }
+  const full = resolve(pdfPath);
+  if (!/\.pdf$/i.test(full)) {
+    console.error(`--pdf: ${pdfPath} is not a .pdf file.`);
+    return null;
+  }
+  const file = Bun.file(full);
+  if (!(await file.exists())) {
+    console.error(`--pdf: file not found: ${pdfPath}`);
+    return null;
+  }
+  const bytes = await file.bytes();
+  if (bytes.length === 0) {
+    console.error(`--pdf: ${pdfPath} is empty.`);
+    return null;
+  }
+  if (bytes.length > MAX_ATTACHED_PDF_BYTES) {
+    console.error(
+      `--pdf: ${pdfPath} is ${formatBytes(bytes.length)} (limit ${formatBytes(MAX_ATTACHED_PDF_BYTES)}).`,
+    );
+    return null;
+  }
+  return {
+    field: "pdf_file",
+    blob: new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
+    fileName: basename(full),
+  };
+}
+
+// ─── attach-pdf (post-live attach / replace / remove) ─────────────────────
+
+async function artifactsAttachPdf(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const usage =
+    "Usage: dillion artifacts attach-pdf <report-id> --pdf <path> [--version N]\n" +
+    "       dillion artifacts attach-pdf <report-id> --remove [--version N]\n" +
+    "  Attaches/replaces (or removes) the PDF on a live version in place — no republish,\n" +
+    "  no new version. Defaults to the report's current version.";
+  if (flags.help === "" || flags.h === "") {
+    console.log(usage);
+    return;
+  }
+  const reportId = positional[0] || flags.report || flags.r;
+  if (!reportId || typeof reportId !== "string") {
+    console.error(usage);
+    process.exit(1);
+  }
+  const json = flags.json !== undefined;
+  const version = typeof flags.version === "string" && flags.version.trim() ? flags.version.trim() : undefined;
+
+  if (flags.remove !== undefined) {
+    const q = version ? `?version=${encodeURIComponent(version)}` : "";
+    const res = await api(`/research-reports/${encodeURIComponent(reportId)}/pdf${q}`, {
+      method: "DELETE",
+    });
+    if (json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+    console.log(`✓ Removed attached PDF from v${res.version_number}`);
+    return;
+  }
+
+  const pdfPath = flags.pdf;
+  if (!pdfPath || typeof pdfPath !== "string") {
+    console.error(usage);
+    process.exit(1);
+  }
+  const pdfEntry = await readAttachedPdfEntry(pdfPath);
+  if (!pdfEntry) {
+    // Unlike publish --pdf, the PDF is the whole point here — fail.
+    process.exit(1);
+  }
+  if (!json) console.log(`Uploading ${pdfEntry.fileName} (${formatBytes(pdfEntry.blob.size)})…`);
+  const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/pdf`, {
+    method: "PUT",
+    fileField: "pdf_file",
+    fileBlob: pdfEntry.blob,
+    fileName: pdfEntry.fileName,
+    fields: { ...(version ? { version } : {}) },
+  });
+  if (json) {
+    console.log(JSON.stringify(res, null, 2));
+    return;
+  }
+  console.log(`✓ Attached PDF to v${res.version_number} (${formatBytes(res.pdf_byte_size ?? 0)})`);
+  console.log(
+    "  Note: share links pinned to a different version keep that version's PDF — pass --version N to target it.",
+  );
 }
 
 async function artifactsDownloadRaw(args: string[]) {
