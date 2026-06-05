@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.21";
+export const VERSION = "0.1.22";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -59,6 +59,9 @@ Commands:
 
   projects list [--name <text>] List projects (optional name filter)
   projects create <name>       Create a project
+  projects members -p <pid>    List VDR data room members
+  projects invitations -p <pid> List pending email invitations
+  projects invite <email> -p <pid>  Invite user to the data room
   project use <pid>            Save default project (optional -p for other commands)
   project show | project clear Show or clear default project
 
@@ -138,7 +141,19 @@ async function main() {
         const { projectsCreateCommand } = await import("./commands/projects");
         return projectsCreateCommand(subrest);
       }
-      console.error("Usage: dillion projects <list|create>");
+      if (subcommand === "members") {
+        const { projectsMembersCommand } = await import("./commands/projects");
+        return projectsMembersCommand(subrest);
+      }
+      if (subcommand === "invitations") {
+        const { projectsInvitationsCommand } = await import("./commands/projects");
+        return projectsInvitationsCommand(subrest);
+      }
+      if (subcommand === "invite") {
+        const { projectsInviteCommand } = await import("./commands/projects");
+        return projectsInviteCommand(subrest);
+      }
+      console.error("Usage: dillion projects <list|create|members|invitations|invite>");
       process.exit(1);
     }
     case "project": {
