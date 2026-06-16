@@ -20,10 +20,15 @@ Publishing:
   publish [dir] --report <report-id>     Publish a NEW VERSION of an existing report
             (also uploads a source zip, excluding secrets/node_modules/dist/.git; use --no-raw to skip)
             (--pdf <path> attaches a PDF served by the share viewer's Download button)
+            (--workbook <path> attaches a spreadsheet served by the viewer's Download workbook button)
   attach-pdf <report-id> --pdf <path> [--version N]
                                 Attach/replace the PDF on a live version (no republish)
   attach-pdf <report-id> --remove [--version N]
                                 Remove the attached PDF from a version
+  attach-workbook <report-id> --workbook <path> [--version N]
+                                Attach/replace the workbook (.xlsx/.xls/.csv) on a live version
+  attach-workbook <report-id> --remove [--version N]
+                                Remove the attached workbook from a version
 
 Download:
   download-raw <report-id> --out <path> [--version N]   Save the source zip for a version
@@ -54,6 +59,7 @@ Common flags:
   --no-raw                      Skip uploading the source/collaboration zip on publish
   --pdf <path>                  Attach a pre-rendered PDF on publish (share viewer downloads it
                                 directly instead of generating one)
+  --workbook <path>             Attach a spreadsheet workbook (.xlsx/.xls/.csv) on publish
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
@@ -62,6 +68,14 @@ const REPORT_DIR_DEFAULT = "dillion-report";
 const MAX_RAW_BUNDLE_ZIP_BYTES = 32 * 1024 * 1024;
 /** Match ingestion backend MAX_ATTACHED_PDF_BYTES (separate cap from report+raw). */
 const MAX_ATTACHED_PDF_BYTES = 32 * 1024 * 1024;
+/** Match ingestion backend MAX_ATTACHED_WORKBOOK_BYTES. */
+const MAX_ATTACHED_WORKBOOK_BYTES = 32 * 1024 * 1024;
+/** Accepted workbook extensions → content types (match the backend's WORKBOOK_CONTENT_TYPES). */
+const WORKBOOK_CONTENT_TYPES: Record<string, string> = {
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".xls": "application/vnd.ms-excel",
+  ".csv": "text/csv",
+};
 
 export async function artifactsCommand(args: string[]) {
   const sub = args[0];
@@ -83,6 +97,8 @@ export async function artifactsCommand(args: string[]) {
       return artifactsPublish(rest);
     case "attach-pdf":
       return artifactsAttachPdf(rest);
+    case "attach-workbook":
+      return artifactsAttachWorkbook(rest);
     case "download-raw":
       return artifactsDownloadRaw(rest);
     case "list":
@@ -199,6 +215,7 @@ async function artifactsPublish(args: string[]) {
   const notes = flags.notes;
   const skipRaw = flags["no-raw"] !== undefined;
   const pdfPath = flags.pdf;
+  const workbookPath = flags.workbook;
 
   const inputs = await walkDirToZipInputs(distDir);
   if (inputs.length === 0) {
@@ -250,6 +267,17 @@ async function artifactsPublish(args: string[]) {
     }
   }
 
+  if (workbookPath !== undefined) {
+    // Invalid --workbook reports an error but does NOT abort the publish.
+    const workbookEntry = await readAttachedWorkbookEntry(workbookPath);
+    if (workbookEntry) {
+      if (!json) console.log(`Attaching workbook (${formatBytes(workbookEntry.blob.size)})…`);
+      (extraFiles ??= []).push(workbookEntry);
+    } else {
+      console.error("Publishing without attached workbook.");
+    }
+  }
+
   if (reportId) {
     if (!json) console.log(`Uploading new version to report ${reportId} (${inputs.length} files, ${totalKb} KiB)…`);
     const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/versions`, {
@@ -268,8 +296,10 @@ async function artifactsPublish(args: string[]) {
         : "";
     const pdfNote =
       res.pdf_byte_size != null ? `, pdf ${formatBytes(res.pdf_byte_size)}` : "";
+    const workbookNote =
+      res.workbook_byte_size != null ? `, workbook ${formatBytes(res.workbook_byte_size)}` : "";
     console.log(
-      `✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)}${rawNote}${pdfNote})`,
+      `✓ Published v${res.version_number} (${res.file_count} files, ${formatBytes(res.byte_size)}${rawNote}${pdfNote}${workbookNote})`,
     );
     return;
   }
@@ -315,8 +345,10 @@ async function artifactsPublish(args: string[]) {
   const rawNote =
     v0.raw_bundle_byte_size != null ? `, source ${formatBytes(v0.raw_bundle_byte_size)}` : "";
   const pdfNote = v0.pdf_byte_size != null ? `, pdf ${formatBytes(v0.pdf_byte_size)}` : "";
+  const workbookNote =
+    v0.workbook_byte_size != null ? `, workbook ${formatBytes(v0.workbook_byte_size)}` : "";
   console.log(`  files:   ${v0.file_count ?? "?"}`);
-  console.log(`  size:    ${formatBytes(v0.byte_size ?? 0)}${rawNote}${pdfNote}`);
+  console.log(`  size:    ${formatBytes(v0.byte_size ?? 0)}${rawNote}${pdfNote}${workbookNote}`);
 }
 
 /**
@@ -354,6 +386,55 @@ async function readAttachedPdfEntry(
   return {
     field: "pdf_file",
     blob: new Blob([new Uint8Array(bytes)], { type: "application/pdf" }),
+    fileName: basename(full),
+  };
+}
+
+/** Return the accepted workbook extension (lowercased, with dot) for a path, or null. */
+function workbookExtension(path: string): string | null {
+  const lower = path.toLowerCase();
+  for (const ext of Object.keys(WORKBOOK_CONTENT_TYPES)) {
+    if (lower.endsWith(ext)) return ext;
+  }
+  return null;
+}
+
+/**
+ * Read + validate a `--workbook` path into an `extraFiles` entry.
+ * Returns null (after printing an error) when the file is unusable.
+ */
+async function readAttachedWorkbookEntry(
+  workbookPath: string,
+): Promise<{ field: string; blob: Blob; fileName: string } | null> {
+  if (!workbookPath || typeof workbookPath !== "string") {
+    console.error("--workbook requires a path to a .xlsx, .xls, or .csv file.");
+    return null;
+  }
+  const full = resolve(workbookPath);
+  const ext = workbookExtension(full);
+  if (!ext) {
+    console.error(`--workbook: ${workbookPath} must be a .xlsx, .xls, or .csv file.`);
+    return null;
+  }
+  const file = Bun.file(full);
+  if (!(await file.exists())) {
+    console.error(`--workbook: file not found: ${workbookPath}`);
+    return null;
+  }
+  const bytes = await file.bytes();
+  if (bytes.length === 0) {
+    console.error(`--workbook: ${workbookPath} is empty.`);
+    return null;
+  }
+  if (bytes.length > MAX_ATTACHED_WORKBOOK_BYTES) {
+    console.error(
+      `--workbook: ${workbookPath} is ${formatBytes(bytes.length)} (limit ${formatBytes(MAX_ATTACHED_WORKBOOK_BYTES)}).`,
+    );
+    return null;
+  }
+  return {
+    field: "workbook_file",
+    blob: new Blob([new Uint8Array(bytes)], { type: WORKBOOK_CONTENT_TYPES[ext] }),
     fileName: basename(full),
   };
 }
@@ -417,6 +498,68 @@ async function artifactsAttachPdf(args: string[]) {
   console.log(`✓ Attached PDF to v${res.version_number} (${formatBytes(res.pdf_byte_size ?? 0)})`);
   console.log(
     "  Note: share links pinned to a different version keep that version's PDF — pass --version N to target it.",
+  );
+}
+
+// ─── attach-workbook (post-live attach / replace / remove) ────────────────
+
+async function artifactsAttachWorkbook(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const usage =
+    "Usage: dillion artifacts attach-workbook <report-id> --workbook <path> [--version N]\n" +
+    "       dillion artifacts attach-workbook <report-id> --remove [--version N]\n" +
+    "  Attaches/replaces (or removes) the workbook (.xlsx/.xls/.csv) on a live version in place —\n" +
+    "  no republish, no new version. Defaults to the report's current version.";
+  if (flags.help === "" || flags.h === "") {
+    console.log(usage);
+    return;
+  }
+  const reportId = positional[0] || flags.report || flags.r;
+  if (!reportId || typeof reportId !== "string") {
+    console.error(usage);
+    process.exit(1);
+  }
+  const json = flags.json !== undefined;
+  const version = typeof flags.version === "string" && flags.version.trim() ? flags.version.trim() : undefined;
+
+  if (flags.remove !== undefined) {
+    const q = version ? `?version=${encodeURIComponent(version)}` : "";
+    const res = await api(`/research-reports/${encodeURIComponent(reportId)}/workbook${q}`, {
+      method: "DELETE",
+    });
+    if (json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
+    console.log(`✓ Removed attached workbook from v${res.version_number}`);
+    return;
+  }
+
+  const workbookPath = flags.workbook;
+  if (!workbookPath || typeof workbookPath !== "string") {
+    console.error(usage);
+    process.exit(1);
+  }
+  const workbookEntry = await readAttachedWorkbookEntry(workbookPath);
+  if (!workbookEntry) {
+    // Unlike publish --workbook, the workbook is the whole point here — fail.
+    process.exit(1);
+  }
+  if (!json) console.log(`Uploading ${workbookEntry.fileName} (${formatBytes(workbookEntry.blob.size)})…`);
+  const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/workbook`, {
+    method: "PUT",
+    fileField: "workbook_file",
+    fileBlob: workbookEntry.blob,
+    fileName: workbookEntry.fileName,
+    fields: { ...(version ? { version } : {}) },
+  });
+  if (json) {
+    console.log(JSON.stringify(res, null, 2));
+    return;
+  }
+  console.log(`✓ Attached workbook to v${res.version_number} (${formatBytes(res.workbook_byte_size ?? 0)})`);
+  console.log(
+    "  Note: share links pinned to a different version keep that version's workbook — pass --version N to target it.",
   );
 }
 
@@ -489,8 +632,11 @@ async function artifactsGet(args: string[]) {
   for (const v of data.versions ?? []) {
     const raw =
       v.raw_bundle_byte_size != null ? `  +source ${formatBytes(v.raw_bundle_byte_size)}` : "";
+    const pdf = v.pdf_byte_size != null ? `  +pdf ${formatBytes(v.pdf_byte_size)}` : "";
+    const workbook =
+      v.workbook_byte_size != null ? `  +workbook ${formatBytes(v.workbook_byte_size)}` : "";
     console.log(
-      `    v${v.version_number}  ${formatBytes(v.byte_size ?? 0)}  ${v.file_count ?? "?"} files  ${v.created_at?.slice(0, 19) ?? ""}${raw}`,
+      `    v${v.version_number}  ${formatBytes(v.byte_size ?? 0)}  ${v.file_count ?? "?"} files  ${v.created_at?.slice(0, 19) ?? ""}${raw}${pdf}${workbook}`,
     );
   }
 }
