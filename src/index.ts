@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.21";
+export const VERSION = "0.1.22";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
