@@ -79,6 +79,7 @@ Commands:
   artifacts init [dir]         Scaffold a Vite + React research report
   artifacts dev | build [dir]  Run vite dev / build for the report
   artifacts publish [dir]      Publish report (--title <t> -p <pid> | --report <id>); includes source zip unless --no-raw
+  artifacts memo-chat enable|disable <report-id>  Toggle Ask memo on the VDR viewer
   artifacts download-raw <id>  Download source zip (--out path, optional --version)
   artifacts list -p <pid>      List research reports for a project
   artifacts get <report-id>    Show report + versions
