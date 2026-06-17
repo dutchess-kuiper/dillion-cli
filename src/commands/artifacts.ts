@@ -1,4 +1,4 @@
-import { mkdir, stat } from "fs/promises";
+import { copyFile, mkdir, stat } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
@@ -164,6 +164,26 @@ async function artifactsViteCommand(args: string[], mode: "dev" | "build") {
   });
   const code = await proc.exited;
   if (code !== 0) process.exit(code);
+  if (mode === "build") {
+    await copyMemoManifestToDist(dir);
+  }
+}
+
+async function copyMemoManifestToDist(dir: string): Promise<void> {
+  const distDir = join(dir, "dist");
+  const dest = join(distDir, "dillion-report-manifest.json");
+  const candidates = [
+    join(dir, "memo-manifest.json"),
+    join(dir, "dillion-report-manifest.json"),
+    join(dir, "public", "dillion-report-manifest.json"),
+  ];
+  for (const src of candidates) {
+    if (await pathExists(src)) {
+      await copyFile(src, dest);
+      console.log(`Copied memo manifest → dist/dillion-report-manifest.json`);
+      return;
+    }
+  }
 }
 
 function excludeReportSourcePath(rel: string): boolean {

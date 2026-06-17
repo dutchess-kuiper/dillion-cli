@@ -188,6 +188,12 @@ html, body {
 .cite:hover {
   background: rgba(27, 79, 114, 0.18);
 }
+
+.dillion-section-highlight {
+  outline: 2px solid rgba(217, 119, 6, 0.55);
+  outline-offset: 4px;
+  transition: outline 200ms ease;
+}
 `;
 
 const APP_TSX = `import {
@@ -308,9 +314,40 @@ import { useEffect, useState, type ReactNode } from "react";
 
 export type DillionMessage =
   | { source: "dillion-artifact"; v: 1; type: "OPEN_SOURCE"; jobId: string; chunkId?: string; label?: string }
-  | { source: "dillion-artifact"; v: 1; type: "READY" };
+  | { source: "dillion-artifact"; v: 1; type: "READY" }
+  | { source: "dillion-artifact"; v: 1; type: "SCROLL_TO_SECTION"; sectionId: string }
+  | { source: "dillion-artifact"; v: 1; type: "HIGHLIGHT_SECTION"; sectionId: string }
+  | { source: "dillion-artifact"; v: 1; type: "CLEAR_HIGHLIGHT" };
 
 let warnedOnce = false;
+let bridgeListenerInstalled = false;
+
+function scrollToSection(sectionId: string): void {
+  const el = document.getElementById(sectionId);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    el.classList.add("dillion-section-highlight");
+    window.setTimeout(() => el.classList.remove("dillion-section-highlight"), 2400);
+  }
+}
+
+function installBridgeListener(): void {
+  if (bridgeListenerInstalled || typeof window === "undefined") return;
+  bridgeListenerInstalled = true;
+  window.addEventListener("message", (event: MessageEvent) => {
+    const data = event.data as DillionMessage | null;
+    if (!data || typeof data !== "object") return;
+    if (data.source !== "dillion-artifact" || data.v !== 1) return;
+    if (data.type === "SCROLL_TO_SECTION" || data.type === "HIGHLIGHT_SECTION") {
+      scrollToSection(data.sectionId);
+    }
+    if (data.type === "CLEAR_HIGHLIGHT") {
+      document.querySelectorAll(".dillion-section-highlight").forEach((el) => {
+        el.classList.remove("dillion-section-highlight");
+      });
+    }
+  });
+}
 
 function inFrame(): boolean {
   try {
@@ -377,6 +414,7 @@ export function Cite({
 
   useEffect(() => {
     setEmbedded(inFrame());
+    installBridgeListener();
     announceReady();
   }, []);
 
@@ -398,6 +436,21 @@ export function Cite({
       {text}
     </button>
   );
+}
+`;
+
+const MEMO_MANIFEST_EXAMPLE = `{
+  "version": 1,
+  "reportId": "example-report",
+  "title": "Example Research Memo",
+  "sections": [
+    {
+      "id": "sec-i",
+      "title": "I. Executive Summary",
+      "text": "Replace with your memo section text. Section ids must match DOM ids in your report.",
+      "citations": []
+    }
+  ]
 }
 `;
 
@@ -438,7 +491,13 @@ No PostHog setup in this bundle. When viewers open a **share link** or in-app
 report page, the VDR shell records session replay on the parent page (same model
 as the ONDA memo) — including this iframe — after the viewer email gate.
 
-## Publish
+## Memo chat manifest
+
+For **Ask memo** chat in the VDR viewer, ship \`dillion-report-manifest.json\` in \`dist/\`
+after build. Place the source file at \`memo-manifest.json\` (project root) or
+\`public/dillion-report-manifest.json\` — \`dillion artifacts build\` copies it into \`dist/\`.
+
+Each section \`id\` must match the DOM \`id\` on your \`<Section id="…">\` components.
 
 \`\`\`sh
 dillion artifacts publish --title "Q2 Diligence" --project <project-id>
@@ -473,6 +532,7 @@ export const VITE_REACT_TEMPLATE: TemplateFile[] = [
   { path: "src/styles.css", contents: STYLES_CSS },
   { path: "src/App.tsx", contents: APP_TSX },
   { path: "src/lib/dillion-bridge.tsx", contents: BRIDGE_TS },
+  { path: "memo-manifest.json", contents: MEMO_MANIFEST_EXAMPLE },
   { path: ".gitignore", contents: GITIGNORE },
   { path: "README.md", contents: README },
 ];
