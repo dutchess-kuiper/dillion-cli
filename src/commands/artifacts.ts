@@ -1,4 +1,4 @@
-import { mkdir, stat } from "fs/promises";
+import { copyFile, mkdir, stat } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
@@ -29,6 +29,8 @@ Publishing:
                                 Attach/replace the workbook (.xlsx/.xls/.csv) on a live version
   attach-workbook <report-id> --remove [--version N]
                                 Remove the attached workbook from a version
+  memo-chat enable <report-id>  Enable Ask memo chat on a published report
+  memo-chat disable <report-id> Disable Ask memo chat (report still viewable)
 
 Download:
   download-raw <report-id> --out <path> [--version N]   Save the source zip for a version
@@ -60,6 +62,8 @@ Common flags:
   --pdf <path>                  Attach a pre-rendered PDF on publish (share viewer downloads it
                                 directly instead of generating one)
   --workbook <path>             Attach a spreadsheet workbook (.xlsx/.xls/.csv) on publish
+  --no-memo-chat                Disable Ask memo chat (default; publish only)
+  --memo-chat                   Enable Ask memo chat for this report
 `.trim();
 
 const REPORT_DIR_DEFAULT = "dillion-report";
@@ -99,6 +103,8 @@ export async function artifactsCommand(args: string[]) {
       return artifactsAttachPdf(rest);
     case "attach-workbook":
       return artifactsAttachWorkbook(rest);
+    case "memo-chat":
+      return artifactsMemoChat(rest);
     case "download-raw":
       return artifactsDownloadRaw(rest);
     case "list":
@@ -164,6 +170,26 @@ async function artifactsViteCommand(args: string[], mode: "dev" | "build") {
   });
   const code = await proc.exited;
   if (code !== 0) process.exit(code);
+  if (mode === "build") {
+    await copyMemoManifestToDist(dir);
+  }
+}
+
+async function copyMemoManifestToDist(dir: string): Promise<void> {
+  const distDir = join(dir, "dist");
+  const dest = join(distDir, "dillion-report-manifest.json");
+  const candidates = [
+    join(dir, "memo-manifest.json"),
+    join(dir, "dillion-report-manifest.json"),
+    join(dir, "public", "dillion-report-manifest.json"),
+  ];
+  for (const src of candidates) {
+    if (await pathExists(src)) {
+      await copyFile(src, dest);
+      console.log(`Copied memo manifest → dist/dillion-report-manifest.json`);
+      return;
+    }
+  }
 }
 
 function excludeReportSourcePath(rel: string): boolean {
@@ -185,6 +211,18 @@ function excludeReportSourcePath(rel: string): boolean {
   if (base === "credentials.json" || base === "secrets.json") return true;
 
   return false;
+}
+
+function memoChatPublishFields(
+  flags: Record<string, string | undefined>,
+): Record<string, string> | undefined {
+  if (flags["no-memo-chat"] !== undefined) {
+    return { memo_chat_enabled: "false" };
+  }
+  if (flags["memo-chat"] !== undefined) {
+    return { memo_chat_enabled: "true" };
+  }
+  return undefined;
 }
 
 // ─── publish ──────────────────────────────────────────────────────────────
@@ -216,6 +254,7 @@ async function artifactsPublish(args: string[]) {
   const skipRaw = flags["no-raw"] !== undefined;
   const pdfPath = flags.pdf;
   const workbookPath = flags.workbook;
+  const memoChatFields = memoChatPublishFields(flags);
 
   const inputs = await walkDirToZipInputs(distDir);
   if (inputs.length === 0) {
@@ -283,7 +322,7 @@ async function artifactsPublish(args: string[]) {
     const res = await apiUploadMultipart(`/research-reports/${encodeURIComponent(reportId)}/versions`, {
       fileBlob: zipBlob,
       fileName: "dist.zip",
-      fields: { ...(notes ? { notes } : {}) },
+      fields: { ...(notes ? { notes } : {}), ...memoChatFields },
       extraFiles,
     });
     if (json) {
@@ -324,6 +363,7 @@ async function artifactsPublish(args: string[]) {
         title,
         ...(flags.description ? { description: flags.description } : {}),
         ...(notes ? { notes } : {}),
+        ...memoChatFields,
       },
       extraFiles,
     }
@@ -561,6 +601,34 @@ async function artifactsAttachWorkbook(args: string[]) {
   console.log(
     "  Note: share links pinned to a different version keep that version's workbook — pass --version N to target it.",
   );
+}
+
+async function artifactsMemoChat(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const usage =
+    "Usage: dillion artifacts memo-chat enable <report-id>\n" +
+    "       dillion artifacts memo-chat disable <report-id>";
+  if (flags.help === "" || flags.h === "") {
+    console.log(usage);
+    return;
+  }
+  const action = positional[0];
+  const reportId = positional[1];
+  if (!action || !reportId || (action !== "enable" && action !== "disable")) {
+    console.error(usage);
+    process.exit(1);
+  }
+  const json = flags.json !== undefined;
+  const enabled = action === "enable";
+  const res = await api(`/research-reports/${encodeURIComponent(reportId)}/memo-chat`, {
+    method: "PATCH",
+    body: { enabled },
+  });
+  if (json) {
+    console.log(JSON.stringify(res, null, 2));
+    return;
+  }
+  console.log(`✓ Memo chat ${enabled ? "enabled" : "disabled"} for report ${reportId}`);
 }
 
 async function artifactsDownloadRaw(args: string[]) {
