@@ -47,6 +47,16 @@ dillion projects create "Q4 diligence"
 dillion projects create my-project -d "Optional description"
 ```
 
+Share the VDR data room (project access — not artifact share links):
+
+```sh
+dillion projects members -p <project-id>
+dillion projects invite abarry@example.com -p <project-id>
+dillion projects invitations -p <project-id>
+```
+
+Existing Dillion users are added immediately. New users get a pending invitation until they sign up (send a Clerk signup email from the web UI if needed).
+
 ### Files
 
 Search files by name:

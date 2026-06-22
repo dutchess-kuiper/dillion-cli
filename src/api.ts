@@ -167,3 +167,32 @@ export async function apiProjectsCreate(
   }
   return api("/projects", { method: "POST", body });
 }
+
+/** GET bastion `/projects/:id/members`. */
+export async function apiProjectMembers(projectId: string): Promise<unknown> {
+  return api(`/projects/${encodeURIComponent(projectId)}/members`);
+}
+
+/** GET bastion `/projects/:id/invitations`. */
+export async function apiProjectInvitations(projectId: string): Promise<unknown> {
+  return api(`/projects/${encodeURIComponent(projectId)}/invitations`);
+}
+
+export type ProjectInviteResult = {
+  status: "member_added" | "invitation_pending";
+  email: string;
+  invitation?: Record<string, unknown>;
+  membership?: Record<string, unknown>;
+  message?: string;
+};
+
+/** POST bastion `/projects/:id/invitations` — invite by email. */
+export async function apiProjectInvite(
+  projectId: string,
+  email: string,
+): Promise<ProjectInviteResult> {
+  return api(`/projects/${encodeURIComponent(projectId)}/invitations`, {
+    method: "POST",
+    body: { email },
+  });
+}
