@@ -40,3 +40,25 @@ export function resolveOrgOverride(
 export function looksLikeOrgId(value: string): boolean {
   return value.trim().startsWith("org_");
 }
+
+/**
+ * Classify the raw `--org-id` value captured by `stripOrgIdFlag`:
+ *   "absent" -> the flag was not passed at all (undefined).
+ *   "empty"  -> the flag was passed with no value (`--org-id`, `--org-id=`, `--org-id --json`,
+ *               or whitespace-only). A usage error: falling back to the saved org here would
+ *               silently run against the very org the user tried to override away from.
+ *   "value"  -> a real, trimmed org id.
+ * Keeping "absent" and "empty" distinct is what lets the entrypoint reject the empty case
+ * instead of silently treating it as "not supplied".
+ */
+export type OrgIdFlag =
+  | { kind: "absent" }
+  | { kind: "empty" }
+  | { kind: "value"; value: string };
+
+export function classifyOrgIdFlag(flag: string | undefined): OrgIdFlag {
+  if (flag === undefined) return { kind: "absent" };
+  const trimmed = flag.trim();
+  if (trimmed === "") return { kind: "empty" };
+  return { kind: "value", value: trimmed };
+}

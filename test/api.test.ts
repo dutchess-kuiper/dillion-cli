@@ -12,9 +12,8 @@ mock.module("../src/config", () => ({
 }));
 
 // api.ts is imported dynamically AFTER the mock is registered.
-const { buildHeaders, api, apiUpload, apiUploadMultipart, apiDownloadToFile } = await import(
-  "../src/api"
-);
+const { buildHeaders, api, apiUpload, apiUploadMultipart, apiDownloadToFile, failWithApiError } =
+  await import("../src/api");
 
 const DIR = join(tmpdir(), "dillion-cli-test");
 const realFetch = globalThis.fetch;
@@ -110,4 +109,43 @@ test("apiDownloadToFile() sends org header and no Content-Type", async () => {
   expect(headers()["X-Dillion-Org-Id"]).toBe("org_dl");
   expect(headers()["Content-Type"]).toBeUndefined();
   setOrgOverride(undefined);
+});
+
+// --- failWithApiError slug special-casing ---
+
+/** Run failWithApiError with process.exit/console.error stubbed; return exit code + text. */
+function runFail(status: number, body: string): { code: number | undefined; text: string } {
+  const origExit = process.exit;
+  const origErr = console.error;
+  let code: number | undefined;
+  let text = "";
+  (process as any).exit = (c?: number) => {
+    code = c;
+    throw new Error("__exit__"); // unwind out of the never-returning helper
+  };
+  console.error = (...a: any[]) => {
+    text += a.join(" ");
+  };
+  try {
+    failWithApiError(status, body);
+  } catch (e) {
+    if (!(e instanceof Error) || e.message !== "__exit__") throw e;
+  } finally {
+    process.exit = origExit;
+    console.error = origErr;
+  }
+  return { code, text };
+}
+
+test("failWithApiError: no_org_memberships gets friendly guidance and exits 1", () => {
+  const { code, text } = runFail(400, JSON.stringify({ error: "no_org_memberships" }));
+  expect(code).toBe(1);
+  expect(text).toContain("doesn't belong to any organization");
+});
+
+test("failWithApiError: unknown slug falls back to the generic message", () => {
+  const { code, text } = runFail(500, JSON.stringify({ error: "boom" }));
+  expect(code).toBe(1);
+  expect(text).toContain("Error 500");
+  expect(text).toContain("boom");
 });

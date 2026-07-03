@@ -7,7 +7,7 @@ const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v
 import { homedir } from "os";
 import { join } from "path";
 import { loadConfig } from "./config";
-import { looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
+import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -46,8 +46,10 @@ async function checkForUpdate(command: string | undefined) {
 /**
  * Pull the global --org-id flag out of the arg list before dispatch so it works in any
  * position and no per-command parser has to know about it. Supports "--org-id <v>" and
- * "--org-id=<v>". A trailing "--org-id" with no value (or a value that looks like another
- * flag) yields an empty string, treated downstream as "not supplied".
+ * "--org-id=<v>". Returns undefined when the flag is absent, and "" when it is present with
+ * no value (a trailing "--org-id", "--org-id=", or "--org-id" followed by another flag).
+ * That distinction matters: applyOrgOverride rejects the present-but-empty case as a usage
+ * error rather than silently falling back to the saved org.
  */
 function stripOrgIdFlag(argv: string[]): { orgIdFlag: string | undefined; args: string[] } {
   const out: string[] = [];
@@ -143,7 +145,14 @@ Flags:
  * A raw --org-id must be an org id, not a name; names resolve only in "dillion org use".
  */
 async function applyOrgOverride(flag: string | undefined) {
-  const flagVal = flag?.trim();
+  const parsed = classifyOrgIdFlag(flag);
+  if (parsed.kind === "empty") {
+    console.error(
+      "--org-id needs an org id, e.g. --org-id org_123. Omit the flag to use your saved org (see `dillion org show`).",
+    );
+    process.exit(1);
+  }
+  const flagVal = parsed.kind === "value" ? parsed.value : undefined;
   if (flagVal && !looksLikeOrgId(flagVal)) {
     console.error(
       `"${flagVal}" looks like a name; run \`dillion org use ${flagVal}\` to select it, or pass the org_... id with --org-id.`,

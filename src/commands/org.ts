@@ -86,7 +86,9 @@ export async function orgUseCommand(args: string[]) {
     return;
   }
 
-  const selector = positional[0]?.trim();
+  // Join all positionals so an unquoted multi-word name (e.g. `dillion org use Beta LLC`)
+  // resolves against the exact-name tier instead of truncating to the first word.
+  const selector = positional.join(" ").trim();
   if (!selector || selector.startsWith("--")) {
     console.error("Usage: dillion org use <org-id-or-name>");
     process.exit(1);

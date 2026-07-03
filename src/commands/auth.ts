@@ -1,11 +1,6 @@
 import { loadConfig, saveConfig, CONFIG_DIR, type Config } from "../config";
 import { mkdirSync } from "fs";
-
-interface OrgEntry {
-  id: string;
-  name: string;
-  role: string;
-}
+import type { OrgEntry } from "./org";
 
 export interface AuthOutcome {
   /** Config to persist. */
@@ -62,6 +57,20 @@ export function buildAuthOutcome(
   return { config, lines };
 }
 
+/**
+ * Interpret a parsed `GET /orgs` body. Fails closed: a non-object (parse failure -> null) or a
+ * body whose `orgs` is not an array is an unexpected response, NOT zero orgs. Only a genuinely
+ * parsed `{ "orgs": [...] }` yields the membership list (which may legitimately be empty).
+ */
+export function parseOrgsResponse(
+  data: unknown
+): { orgs: OrgEntry[] } | { unexpected: true } {
+  if (!data || typeof data !== "object" || !Array.isArray((data as { orgs?: unknown }).orgs)) {
+    return { unexpected: true };
+  }
+  return { orgs: (data as { orgs: OrgEntry[] }).orgs };
+}
+
 export async function authCommand(args: string[]) {
   const apiKey = args[0];
   const baseUrl = args.find((a) => a.startsWith("--url="))?.split("=")[1];
@@ -87,13 +96,25 @@ export async function authCommand(args: string[]) {
     console.error("Invalid API key.");
     process.exit(1);
   }
+  if (res.status === 404) {
+    console.error(
+      "This server doesn't support org discovery yet. Update the server, or use an older CLI."
+    );
+    process.exit(1);
+  }
   if (!res.ok) {
     console.error(`Server error (${res.status}). Try again.`);
     process.exit(1);
   }
 
-  const data = (await res.json().catch(() => null)) as { orgs?: OrgEntry[] } | null;
-  const orgs = data?.orgs ?? [];
+  const parsed = parseOrgsResponse(await res.json().catch(() => null));
+  if ("unexpected" in parsed) {
+    console.error(
+      "Unexpected response from the server while reading your organizations. Try again, or update the CLI if this persists."
+    );
+    process.exit(1);
+  }
+  const orgs = parsed.orgs;
 
   mkdirSync(CONFIG_DIR, { recursive: true });
 

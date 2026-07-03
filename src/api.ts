@@ -44,10 +44,10 @@ function parseApiErrorMessage(err: string): string {
 }
 
 /**
- * Shared error path for all fetch sites. Special-cases the bastion org-selection error
+ * Shared error path for all fetch sites. Special-cases the bastion org-scoping error
  * bodies with actionable guidance, otherwise prints the generic parsed message. Exits 1.
  */
-function failWithApiError(status: number, body: string): never {
+export function failWithApiError(status: number, body: string): never {
   const msg = parseApiErrorMessage(body);
   if (msg === "org_selection_required") {
     console.error(
@@ -57,6 +57,16 @@ function failWithApiError(status: number, body: string): never {
   }
   if (msg === "not_a_member_of_org") {
     console.error("You are not a member of that organization. Run `dillion org list`.");
+    process.exit(1);
+  }
+  if (msg === "no_org_memberships") {
+    console.error("Your account doesn't belong to any organization yet; contact your admin.");
+    process.exit(1);
+  }
+  if (msg === "org_validation_failed") {
+    console.error(
+      "Could not validate your organization. Run `dillion org list`, then re-select with `dillion org use <org>`."
+    );
     process.exit(1);
   }
   console.error(`Error ${status}: ${msg}`);

@@ -34,6 +34,16 @@ test("resolveOrgSelector: exact name wins over substring ambiguity", () => {
   expect(r.org?.id).toBe("org_beta");
 });
 
+test("resolveOrgSelector: unquoted multi-word name resolves via joined positionals", () => {
+  // `dillion org use Beta LLC` arrives as positional ["Beta", "LLC"].
+  const positional = ["Beta", "LLC"];
+  // The first word alone is ambiguous (Beta LLC vs Beta Partners)...
+  expect(resolveOrgSelector(ORGS, positional[0]!).ambiguous?.length).toBe(2);
+  // ...but joining the positionals hits the exact-name tier and resolves uniquely.
+  const r = resolveOrgSelector(ORGS, positional.join(" ").trim());
+  expect(r.org?.id).toBe("org_beta");
+});
+
 test("resolveOrgSelector: no match reports notFound", () => {
   const r = resolveOrgSelector(ORGS, "Gamma");
   expect(r.notFound).toBe(true);

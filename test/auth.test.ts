@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { buildAuthOutcome } from "../src/commands/auth";
+import { buildAuthOutcome, parseOrgsResponse } from "../src/commands/auth";
 
 const A = { id: "org_a", name: "Alpha", role: "admin" };
 const B = { id: "org_b", name: "Beta", role: "member" };
@@ -43,4 +43,28 @@ test("buildAuthOutcome: preserves projectId and reports explicit server", () => 
   const { config, lines } = buildAuthOutcome("k", "https://s", [A], prev, true);
   expect(config.projectId).toBe("p1");
   expect(lines).toContain("Server: https://s");
+});
+
+// parseOrgsResponse: fail closed so a malformed 200 body never masquerades as "zero orgs"
+// (which would save the key and print "you belong to no organization").
+
+test("parseOrgsResponse: null (JSON parse failure) is unexpected, not zero orgs", () => {
+  expect("unexpected" in parseOrgsResponse(null)).toBe(true);
+});
+
+test("parseOrgsResponse: object without an orgs array is unexpected", () => {
+  expect("unexpected" in parseOrgsResponse({})).toBe(true);
+  expect("unexpected" in parseOrgsResponse({ orgs: "nope" })).toBe(true);
+  expect("unexpected" in parseOrgsResponse({ orgs: null })).toBe(true);
+});
+
+test("parseOrgsResponse: a genuine {orgs:[]} is treated as zero orgs", () => {
+  const r = parseOrgsResponse({ orgs: [] });
+  expect("unexpected" in r).toBe(false);
+  expect((r as { orgs: unknown[] }).orgs).toEqual([]);
+});
+
+test("parseOrgsResponse: a populated list returns the entries", () => {
+  const r = parseOrgsResponse({ orgs: [A, B] });
+  expect((r as { orgs: typeof A[] }).orgs.map((o) => o.id)).toEqual(["org_a", "org_b"]);
 });

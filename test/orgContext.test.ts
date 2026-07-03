@@ -4,6 +4,7 @@ import {
   looksLikeOrgId,
   setOrgOverride,
   getOrgOverride,
+  classifyOrgIdFlag,
 } from "../src/orgContext";
 
 test("resolveOrgOverride: flag takes precedence over config", () => {
@@ -33,6 +34,19 @@ test("looksLikeOrgId: true only for org_ prefix", () => {
   expect(looksLikeOrgId("Acme Corp")).toBe(false);
   expect(looksLikeOrgId("acme")).toBe(false);
   expect(looksLikeOrgId("")).toBe(false);
+});
+
+test("classifyOrgIdFlag: absent flag is distinct from present-but-empty", () => {
+  // Absent: stripOrgIdFlag returns undefined -> falls back to the saved org downstream.
+  expect(classifyOrgIdFlag(undefined)).toEqual({ kind: "absent" });
+  // Present but empty: `--org-id`, `--org-id=`, `--org-id --json`, or whitespace -> usage error.
+  expect(classifyOrgIdFlag("")).toEqual({ kind: "empty" });
+  expect(classifyOrgIdFlag("   ")).toEqual({ kind: "empty" });
+});
+
+test("classifyOrgIdFlag: a real value is trimmed and returned", () => {
+  expect(classifyOrgIdFlag("org_x")).toEqual({ kind: "value", value: "org_x" });
+  expect(classifyOrgIdFlag("  org_x  ")).toEqual({ kind: "value", value: "org_x" });
 });
 
 test("setOrgOverride/getOrgOverride: roundtrip and trim, empty clears", () => {
