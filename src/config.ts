@@ -9,6 +9,8 @@ export interface Config {
   baseUrl: string;
   /** Saved by \`dillion project use\`; used when commands omit -p/--project */
   projectId?: string;
+  /** Saved by \`dillion org use\`; overridden per-invocation by --org-id */
+  orgId?: string;
 }
 
 export async function loadConfig(): Promise<Config | null> {

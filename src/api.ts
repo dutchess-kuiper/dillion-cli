@@ -1,8 +1,29 @@
 import { mkdir, writeFile } from "fs/promises";
 import { basename, dirname } from "path";
 import { getConfig } from "./config";
+import { getOrgOverride } from "./orgContext";
 
 let _config: { apiKey: string; baseUrl: string } | null = null;
+
+/**
+ * Build request headers for every bastion call. Always sets `Authorization`, and attaches
+ * `X-Dillion-Org-Id` when an acting org has resolved for this invocation (else sends none,
+ * letting bastion auto-select or error). Content-Type is NOT hard-coded: the JSON `api()`
+ * site passes it via `extra`, while the multipart upload sites pass nothing so `fetch` can
+ * set the multipart boundary itself.
+ */
+export function buildHeaders(
+  apiKey: string,
+  extra?: Record<string, string>
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${apiKey}`,
+    ...extra,
+  };
+  const orgId = getOrgOverride();
+  if (orgId) headers["X-Dillion-Org-Id"] = orgId;
+  return headers;
+}
 
 /** Parse FastAPI / bastion JSON error bodies into a user-facing message. */
 function parseApiErrorMessage(err: string): string {
@@ -20,6 +41,26 @@ function parseApiErrorMessage(err: string): string {
     // use raw body
   }
   return err;
+}
+
+/**
+ * Shared error path for all fetch sites. Special-cases the bastion org-selection error
+ * bodies with actionable guidance, otherwise prints the generic parsed message. Exits 1.
+ */
+function failWithApiError(status: number, body: string): never {
+  const msg = parseApiErrorMessage(body);
+  if (msg === "org_selection_required") {
+    console.error(
+      "You belong to multiple organizations. Run `dillion org list` then `dillion org use <org>`, or pass --org-id."
+    );
+    process.exit(1);
+  }
+  if (msg === "not_a_member_of_org") {
+    console.error("You are not a member of that organization. Run `dillion org list`.");
+    process.exit(1);
+  }
+  console.error(`Error ${status}: ${msg}`);
+  process.exit(1);
 }
 
 async function config() {
@@ -40,17 +81,13 @@ export async function api(
 
   const res = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
+    headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
-    process.exit(1);
+    failWithApiError(res.status, err);
   }
 
   if (raw) return res;
@@ -74,16 +111,13 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
   const url = `${baseUrl}/upload?project_id=${encodeURIComponent(projectId)}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: buildHeaders(apiKey),
     body: formData,
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
-    process.exit(1);
+    failWithApiError(res.status, err);
   }
 
   return res.json() as Promise<Record<string, unknown>>;
@@ -119,14 +153,13 @@ export async function apiUploadMultipart(
 
   const res = await fetch(`${baseUrl}${path}`, {
     method: options.method ?? "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: buildHeaders(apiKey),
     body: formData,
   });
 
   if (!res.ok) {
     const err = await res.text();
-    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
-    process.exit(1);
+    failWithApiError(res.status, err);
   }
   return res.json();
 }
@@ -136,12 +169,11 @@ export async function apiDownloadToFile(path: string, outPath: string): Promise<
   const { apiKey, baseUrl } = await config();
   const res = await fetch(`${baseUrl}${path}`, {
     method: "GET",
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: buildHeaders(apiKey),
   });
   if (!res.ok) {
     const err = await res.text();
-    console.error(`Error ${res.status}: ${parseApiErrorMessage(err)}`);
-    process.exit(1);
+    failWithApiError(res.status, err);
   }
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, Buffer.from(await res.arrayBuffer()));
