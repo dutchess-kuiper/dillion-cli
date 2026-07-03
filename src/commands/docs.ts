@@ -12,6 +12,12 @@ SEARCH
     --alpha <0-1>                         0 = keyword, 1 = semantic (default: 0.5)
     --job <id>                            Filter to a specific job
 
+ORGANIZATIONS
+  dillion org list                        List organizations you belong to (marks active)
+  dillion org use <id-or-name>            Set the active org (sent as X-Dillion-Org-Id)
+  dillion org show | dillion org clear    Show or clear the active org
+    (override for one command with the global --org-id <org_...> flag)
+
 PROJECTS
   dillion projects list [--name <text>]     List your projects (optional name filter)
   dillion projects create <name>           Create a project
@@ -61,6 +67,7 @@ OTHER
 
 FLAGS
   --project, -p <id>                      Project ID (optional after dillion project use)
+  --org-id <org_...>                      Act in this org for one command (overrides org use)
   --json                                  Output raw JSON (all commands)
   --limit <n>                             Result limit
   --out, -o <file>                        Output file
