@@ -1,6 +1,6 @@
 import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { api, apiUpload } from "../api";
+import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError } from "../api";
 import { getConfig } from "../config";
 import { waitForJobCompletion } from "../jobWait";
 import { requireProjectId, resolveProjectId } from "../projectContext";
@@ -290,10 +290,7 @@ async function fetchTextJob(options: {
   if (options.projectId) url.searchParams.set("projectId", options.projectId);
 
   const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      Accept: "application/json",
-    },
+    headers: buildHeaders(apiKey, { Accept: "application/json" }),
   });
 
   const body = await res.text();
@@ -301,7 +298,14 @@ async function fetchTextJob(options: {
     if (res.status === 404 && body.includes("Cannot GET")) {
       throw new Error("Server does not support txt downloads yet.");
     }
-    throw new Error(parseErrorMessage(body, res.status));
+    // Org-scoping failures apply to the whole invocation (every job in the batch
+    // would fail the same way), so exit with the shared guidance. Anything else
+    // (e.g. one bad job id) must THROW, not exit: the per-job catch in the batch
+    // loop records `FAIL <jobId>` and keeps downloading the remaining jobs.
+    if (isOrgScopeApiError(body)) {
+      failWithApiError(res.status, body);
+    }
+    throw new Error(formatApiError(res.status, body));
   }
 
   const data = JSON.parse(body) as { jobId?: string; fileName?: string; text?: string };
@@ -363,13 +367,4 @@ function sanitizeFileName(name: string) {
 
 function defaultFileName(jobId: string, format: "original" | "txt") {
   return format === "txt" ? `${jobId}.txt` : jobId;
-}
-
-function parseErrorMessage(body: string, status: number) {
-  try {
-    const parsed = JSON.parse(body) as { error?: string };
-    return parsed.error || `Request failed with ${status}`;
-  } catch {
-    return body || `Request failed with ${status}`;
-  }
 }

@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.22";
+export const VERSION = "0.1.23";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
 import { homedir } from "os";
 import { join } from "path";
+import { loadConfig } from "./config";
+import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -41,7 +43,39 @@ async function checkForUpdate(command: string | undefined) {
   }
 }
 
-const args = process.argv.slice(2);
+/**
+ * Pull the global --org-id flag out of the arg list before dispatch so it works in any
+ * position and no per-command parser has to know about it. Supports "--org-id <v>" and
+ * "--org-id=<v>". Returns undefined when the flag is absent, and "" when it is present with
+ * no value (a trailing "--org-id", "--org-id=", or "--org-id" followed by another flag).
+ * That distinction matters: applyOrgOverride rejects the present-but-empty case as a usage
+ * error rather than silently falling back to the saved org.
+ */
+function stripOrgIdFlag(argv: string[]): { orgIdFlag: string | undefined; args: string[] } {
+  const out: string[] = [];
+  let orgIdFlag: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--org-id") {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        orgIdFlag = next;
+        i++;
+      } else {
+        orgIdFlag = "";
+      }
+      continue;
+    }
+    if (a.startsWith("--org-id=")) {
+      orgIdFlag = a.slice("--org-id=".length);
+      continue;
+    }
+    out.push(a);
+  }
+  return { orgIdFlag, args: out };
+}
+
+const { orgIdFlag, args } = stripOrgIdFlag(process.argv.slice(2));
 const command = args[0];
 const subcommand = args[1];
 const rest = args.slice(1);
@@ -56,6 +90,10 @@ Commands:
   auth <api-key> [--url=...]   Save API credentials
   update                       Update to latest version
   health                       Check server status
+
+  org list                     List organizations you belong to
+  org use <id-or-name>         Set the active organization (sent on every request)
+  org show | org clear         Show or clear the active organization
 
   projects list [--name <text>] List projects (optional name filter)
   projects create <name>       Create a project
@@ -96,10 +134,34 @@ Commands:
 
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
+  --org-id <org_...>   Act in this organization for one command (overrides org use)
   --json               Output raw JSON
   --limit <n>          Result limit
   --out, -o <path>     Output file or directory
 `;
+
+/**
+ * Resolve the acting org ONCE at startup (flag ?? config.orgId) and stash it for buildHeaders.
+ * A raw --org-id must be an org id, not a name; names resolve only in "dillion org use".
+ */
+async function applyOrgOverride(flag: string | undefined) {
+  const parsed = classifyOrgIdFlag(flag);
+  if (parsed.kind === "empty") {
+    console.error(
+      "--org-id needs an org id, e.g. --org-id org_123. Omit the flag to use your saved org (see `dillion org show`).",
+    );
+    process.exit(1);
+  }
+  const flagVal = parsed.kind === "value" ? parsed.value : undefined;
+  if (flagVal && !looksLikeOrgId(flagVal)) {
+    console.error(
+      `"${flagVal}" looks like a name; run \`dillion org use ${flagVal}\` to select it, or pass the org_... id with --org-id.`,
+    );
+    process.exit(1);
+  }
+  const cfg = await loadConfig();
+  setOrgOverride(resolveOrgOverride(flagVal, cfg?.orgId));
+}
 
 async function main() {
   if (!command || command === "help" || command === "--help" || command === "-h") {
@@ -111,6 +173,8 @@ async function main() {
     console.log(VERSION);
     process.exit(0);
   }
+
+  await applyOrgOverride(orgIdFlag);
 
   switch (command) {
     case "auth": {
@@ -155,6 +219,26 @@ async function main() {
         return projectsInviteCommand(subrest);
       }
       console.error("Usage: dillion projects <list|create|members|invitations|invite>");
+      process.exit(1);
+    }
+    case "org": {
+      if (subcommand === "list") {
+        const { orgListCommand } = await import("./commands/org");
+        return orgListCommand(subrest);
+      }
+      if (subcommand === "use") {
+        const { orgUseCommand } = await import("./commands/org");
+        return orgUseCommand(subrest);
+      }
+      if (subcommand === "show") {
+        const { orgShowCommand } = await import("./commands/org");
+        return orgShowCommand();
+      }
+      if (subcommand === "clear") {
+        const { orgClearCommand } = await import("./commands/org");
+        return orgClearCommand();
+      }
+      console.error("Usage: dillion org <list|use|show|clear>");
       process.exit(1);
     }
     case "project": {
