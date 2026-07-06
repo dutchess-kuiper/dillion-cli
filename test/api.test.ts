@@ -12,8 +12,16 @@ mock.module("../src/config", () => ({
 }));
 
 // api.ts is imported dynamically AFTER the mock is registered.
-const { buildHeaders, api, apiUpload, apiUploadMultipart, apiDownloadToFile, failWithApiError } =
-  await import("../src/api");
+const {
+  buildHeaders,
+  api,
+  apiUpload,
+  apiUploadMultipart,
+  apiDownloadToFile,
+  failWithApiError,
+  formatApiError,
+  isOrgScopeApiError,
+} = await import("../src/api");
 
 const DIR = join(tmpdir(), "dillion-cli-test");
 const realFetch = globalThis.fetch;
@@ -148,4 +156,30 @@ test("failWithApiError: unknown slug falls back to the generic message", () => {
   expect(code).toBe(1);
   expect(text).toContain("Error 500");
   expect(text).toContain("boom");
+});
+
+// --- formatApiError / isOrgScopeApiError (pure, non-exiting) ---
+
+test("formatApiError: org slug maps to friendly guidance without exiting", () => {
+  const msg = formatApiError(400, JSON.stringify({ error: "org_selection_required" }));
+  expect(msg).toContain("multiple organizations");
+  expect(msg).not.toContain("Error 400");
+});
+
+test("formatApiError: non-org error keeps the generic form for per-job reporting", () => {
+  const msg = formatApiError(404, JSON.stringify({ detail: "Job not found" }));
+  expect(msg).toBe("Error 404: Job not found");
+});
+
+test("isOrgScopeApiError: true only for the four bastion org-scoping slugs", () => {
+  for (const slug of [
+    "org_selection_required",
+    "not_a_member_of_org",
+    "no_org_memberships",
+    "org_validation_failed",
+  ]) {
+    expect(isOrgScopeApiError(JSON.stringify({ error: slug }))).toBe(true);
+  }
+  expect(isOrgScopeApiError(JSON.stringify({ detail: "Job not found" }))).toBe(false);
+  expect(isOrgScopeApiError("plain text body")).toBe(false);
 });

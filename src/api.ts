@@ -44,32 +44,38 @@ function parseApiErrorMessage(err: string): string {
 }
 
 /**
- * Shared error path for all fetch sites. Special-cases the bastion org-scoping error
- * bodies with actionable guidance, otherwise prints the generic parsed message. Exits 1.
+ * Friendly guidance for the bastion org-scoping error slugs (cross-repo contract).
+ * These failures are invocation-wide — they depend on the caller's org selection,
+ * not on any one resource — which is why isOrgScopeApiError gates whether a batch
+ * operation should abort outright or record a per-item failure and continue.
  */
-export function failWithApiError(status: number, body: string): never {
+const ORG_SCOPE_MESSAGES: Record<string, string> = {
+  org_selection_required:
+    "You belong to multiple organizations. Run `dillion org list` then `dillion org use <org>`, or pass --org-id.",
+  not_a_member_of_org: "You are not a member of that organization. Run `dillion org list`.",
+  no_org_memberships: "Your account doesn't belong to any organization yet; contact your admin.",
+  org_validation_failed:
+    "Could not validate your organization. Run `dillion org list`, then re-select with `dillion org use <org>`.",
+};
+
+/** Whether an error body is one of the bastion org-scoping slugs. */
+export function isOrgScopeApiError(body: string): boolean {
+  return Object.hasOwn(ORG_SCOPE_MESSAGES, parseApiErrorMessage(body));
+}
+
+/**
+ * Format an error body into the user-facing message: the friendly org-scoping
+ * guidance when the slug matches, otherwise the generic parsed form. Does NOT
+ * exit — callers that must keep going (per-job batch loops) throw this instead.
+ */
+export function formatApiError(status: number, body: string): string {
   const msg = parseApiErrorMessage(body);
-  if (msg === "org_selection_required") {
-    console.error(
-      "You belong to multiple organizations. Run `dillion org list` then `dillion org use <org>`, or pass --org-id."
-    );
-    process.exit(1);
-  }
-  if (msg === "not_a_member_of_org") {
-    console.error("You are not a member of that organization. Run `dillion org list`.");
-    process.exit(1);
-  }
-  if (msg === "no_org_memberships") {
-    console.error("Your account doesn't belong to any organization yet; contact your admin.");
-    process.exit(1);
-  }
-  if (msg === "org_validation_failed") {
-    console.error(
-      "Could not validate your organization. Run `dillion org list`, then re-select with `dillion org use <org>`."
-    );
-    process.exit(1);
-  }
-  console.error(`Error ${status}: ${msg}`);
+  return Object.hasOwn(ORG_SCOPE_MESSAGES, msg) ? ORG_SCOPE_MESSAGES[msg]! : `Error ${status}: ${msg}`;
+}
+
+/** Shared terminal error path for all fetch sites: print the message and exit 1. */
+export function failWithApiError(status: number, body: string): never {
+  console.error(formatApiError(status, body));
   process.exit(1);
 }
 
