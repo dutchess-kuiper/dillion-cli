@@ -8,6 +8,10 @@
   },
   "scripts": {
     "dev": "bun src/index.ts",
+    "mcp": "bun src/mcp/index.ts",
+    "mcp:smoke": "bun src/mcp/smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test src/mcp",
     "build": "bun build --compile src/index.ts --outfile dist/dillion-darwin-arm64 --target=bun-darwin-arm64 && bun build --compile src/index.ts --outfile dist/dillion-darwin-x64 --target=bun-darwin-x64 && bun build --compile src/index.ts --outfile dist/dillion-linux-x64 --target=bun-linux-x64 && bun build --compile src/index.ts --outfile dist/dillion-linux-arm64 --target=bun-linux-arm64",
     "release": "bun run build && gh release create v$npm_package_version dist/dillion-darwin-arm64 dist/dillion-darwin-x64 dist/dillion-linux-x64 dist/dillion-linux-arm64 --title v$npm_package_version --generate-notes"
   },
@@ -20,9 +24,11 @@
   "description": "Command-line interface for the Dillion Bastion API.",
   "main": "index.js",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
     "bun-types": "^1.3.11",
     "typescript": "^5",
-    "undici-types": "^7.18.2"
+    "undici-types": "^7.18.2",
+    "zod": "^3.25.76"
   },
   "repository": {
     "type": "git",
