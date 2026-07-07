@@ -267,6 +267,94 @@ dillion --version    # Show version
 dillion help         # Show help
 ```
 
+## MCP server
+
+The repo ships a second entry point, `src/mcp/index.ts`, that exposes Dillion's capabilities as
+[Model Context Protocol](https://modelcontextprotocol.io) tools over **stdio**. AI agents
+(Claude Code / Claude Desktop) call hybrid search, agent ask, jobs, files, obligations, and
+artifacts publish/share as native, typed tools — with clean `jobId`/`chunkId` citation fields —
+instead of shelling out to the CLI and parsing stdout.
+
+It reuses the CLI's HTTP client, config, and org context, so it authenticates exactly like the
+CLI (`Bearer dil_...` + `X-Dillion-Org-Id`). v1 is **local-only** — run it from a repo checkout
+(no npm/binary).
+
+### Configuration
+
+The server reads credentials from `~/.config/dillion/config.json` (written by `dillion auth`)
+**or** from environment variables (env wins). There is **no default server URL** — you must
+supply a base URL one way or the other, or the server exits at startup with a remedy message.
+
+| Env var | Required | Purpose |
+|---------|----------|---------|
+| `DILLION_API_KEY` | yes* | `dil_...` API key (*unless set via `dillion auth`) |
+| `DILLION_BASE_URL` | yes* | Bastion base URL, e.g. `https://bastion.dillion.ai` (*unless set via `dillion auth`; trailing slashes stripped) |
+| `DILLION_PROJECT_ID` | no | Default project when a tool omits `projectId` |
+| `DILLION_ORG_ID` | no | Acting organization (`X-Dillion-Org-Id`) |
+| `DILLION_MCP_TOOLS` | no | `full` (default, all 30 tools) or `core` (8 pipeline tools) |
+
+These same env vars also apply to the CLI's `health` and `files text` commands; env values are
+**never persisted** to the config file.
+
+### Register with a client
+
+```sh
+claude mcp add dillion \
+  --env DILLION_BASE_URL=https://bastion.dillion.ai \
+  --env DILLION_API_KEY=dil_... \
+  -- bun run /absolute/path/to/dillion-cli/src/mcp/index.ts
+```
+
+Or via `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "dillion": {
+      "command": "bun",
+      "args": ["run", "/absolute/path/to/dillion-cli/src/mcp/index.ts"],
+      "env": {
+        "DILLION_BASE_URL": "https://bastion.dillion.ai",
+        "DILLION_API_KEY": "dil_...",
+        "DILLION_PROJECT_ID": "proj_..."
+      }
+    }
+  }
+}
+```
+
+Local scripts: `bun run mcp` (start over stdio), `bun run mcp:smoke` (spawn + handshake self-test),
+`bun run typecheck`, `bun test src/mcp` (unit + in-memory handshake tests).
+
+### Tools
+
+**Core (8, `DILLION_MCP_TOOLS=core`):** `search`, `agent_ask`, `files_search`, `jobs_list`,
+`jobs_get`, `obligations_export`, `artifacts_publish`, `artifacts_share_create`.
+
+**Full (30, default), adds:** `health`, `projects_list`, `projects_create`, `filters_get`,
+`jobs_wait`, `files_text`, `files_download`, `files_upload`, `agent_search`, `artifacts_list`,
+`artifacts_get`, `artifacts_download_raw`, `artifacts_attach_pdf`, `artifacts_attach_workbook`,
+`artifacts_set_memo_chat`, `artifacts_shares_list`, `artifacts_share_update`, `share_links_create`,
+`share_links_list`, `share_links_get`, `share_links_update`, `share_links_revoke`.
+
+`search` is the canonical citation source: every result carries both `jobId` and `chunkId`.
+`agent_ask` sources carry no `jobId` — use `search` for citations.
+
+### Notes
+
+- **Absolute paths required.** File-writing/reading tools (`files_download` `destDir`,
+  `files_upload` `path`, `obligations_export` `outPath`, `artifacts_download_raw` `outPath`,
+  `artifacts_publish` `dir`, and any `pdfPath`/`workbookPath`) require absolute paths — MCP hosts
+  often launch the server with cwd `/`. The resolved path is echoed back.
+- **Bounded polling.** `jobs_wait` and `files_upload` (`wait: true`) never hang: they return
+  `{ timedOut: true, status, ... }` at the deadline (default 50s, max 300s). Call again to keep
+  waiting. A job *failure* is a normal result with `failed: true` + step detail.
+- **Org is process-global.** The acting org is resolved once at startup. Per-call org is out of
+  scope in v1 — to act in a different org, run a second server instance with a different
+  `DILLION_ORG_ID`.
+- **Pre-built bundles only.** `artifacts_publish` takes a pre-BUILT `dir` (containing
+  `dist/index.html`); it never runs vite.
+
 ## Flags
 
 | Flag | Short | Description |
