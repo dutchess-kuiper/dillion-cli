@@ -1,0 +1,19 @@
+{
+  "total": 1,
+  "limit": 25,
+  "offset": 0,
+  "hasMore": false,
+  "jobs": [
+    {
+      "id": "job_1",
+      "fileName": "Lease.pdf",
+      "status": "completed",
+      "createdAt": "2026-01-02T03:04:05Z",
+      "s3Key": "s3://dillion-bucket/private/Lease.pdf",
+      "metadata": {
+        "document_category": "Real Estate",
+        "internal_flag": "should-only-appear-when-includeMetadata"
+      }
+    }
+  ]
+}

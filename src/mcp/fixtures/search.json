@@ -1,0 +1,17 @@
+{
+  "totalResults": 1,
+  "searchMode": "hybrid",
+  "results": [
+    {
+      "jobId": "job_1",
+      "chunkId": "chunk_abc",
+      "chunkIndex": 3,
+      "fileName": "Credit Agreement.pdf",
+      "pages": [12, 13],
+      "score": 0.87,
+      "distance": 0.13,
+      "content": "short raw content that should be dropped",
+      "enriched": "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ enriched chunk text used for the model"
+    }
+  ]
+}

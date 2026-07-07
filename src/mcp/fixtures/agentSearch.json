@@ -1,0 +1,14 @@
+{
+  "totalResults": 1,
+  "totalTime": 42,
+  "results": [
+    {
+      "collection": "chunks",
+      "uuid": "uuid_123",
+      "properties": {
+        "file_name": "Master Services Agreement.pdf",
+        "content": "The parties agree to mutual indemnification for third-party claims arising from negligence."
+      }
+    }
+  ]
+}

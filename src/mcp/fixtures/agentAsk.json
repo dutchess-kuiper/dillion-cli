@@ -1,0 +1,11 @@
+{
+  "answer": "The key financial covenants are a leverage ratio and an interest coverage ratio.",
+  "isPartialAnswer": true,
+  "missingInformation": ["exact covenant thresholds"],
+  "sources": [
+    { "collection": "chunks", "objectId": "obj_1" },
+    { "collection": "chunks", "objectId": "obj_2" }
+  ],
+  "usage": { "totalTokens": 1234 },
+  "totalTime": 567
+}
