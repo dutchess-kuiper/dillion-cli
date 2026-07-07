@@ -69,13 +69,13 @@ Common flags:
 const REPORT_DIR_DEFAULT = "dillion-report";
 
 /** Match ingestion backend MAX_RAW_BUNDLE_ZIP_BYTES. */
-const MAX_RAW_BUNDLE_ZIP_BYTES = 32 * 1024 * 1024;
+export const MAX_RAW_BUNDLE_ZIP_BYTES = 32 * 1024 * 1024;
 /** Match ingestion backend MAX_ATTACHED_PDF_BYTES (separate cap from report+raw). */
-const MAX_ATTACHED_PDF_BYTES = 32 * 1024 * 1024;
+export const MAX_ATTACHED_PDF_BYTES = 32 * 1024 * 1024;
 /** Match ingestion backend MAX_ATTACHED_WORKBOOK_BYTES. */
-const MAX_ATTACHED_WORKBOOK_BYTES = 32 * 1024 * 1024;
+export const MAX_ATTACHED_WORKBOOK_BYTES = 32 * 1024 * 1024;
 /** Accepted workbook extensions → content types (match the backend's WORKBOOK_CONTENT_TYPES). */
-const WORKBOOK_CONTENT_TYPES: Record<string, string> = {
+export const WORKBOOK_CONTENT_TYPES: Record<string, string> = {
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".xls": "application/vnd.ms-excel",
   ".csv": "text/csv",
@@ -192,7 +192,7 @@ async function copyMemoManifestToDist(dir: string): Promise<void> {
   }
 }
 
-function excludeReportSourcePath(rel: string): boolean {
+export function excludeReportSourcePath(rel: string): boolean {
   const n = rel.replace(/\\/g, "/");
   const base = n.includes("/") ? n.slice(n.lastIndexOf("/") + 1) : n;
 

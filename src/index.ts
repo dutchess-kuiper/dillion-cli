@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.23";
-
-const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
-
 import { homedir } from "os";
 import { join } from "path";
 import { loadConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
+import { VERSION } from "./version";
+
+export { VERSION };
+
+const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours

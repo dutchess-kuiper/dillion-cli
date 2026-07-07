@@ -73,9 +73,45 @@ export function formatApiError(status: number, body: string): string {
   return Object.hasOwn(ORG_SCOPE_MESSAGES, msg) ? ORG_SCOPE_MESSAGES[msg]! : `Error ${status}: ${msg}`;
 }
 
-/** Shared terminal error path for all fetch sites: print the message and exit 1. */
+/**
+ * Structured HTTP failure carrying the original status + raw body alongside the
+ * user-facing message. Thrown (instead of exiting) when the failure mode is "throw"
+ * so a long-lived process (the MCP server) can turn it into a tool error instead of
+ * killing the process.
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly body: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * How the four fetch fns react to a non-2xx: "exit" (default) preserves the exact
+ * CLI behavior (print + process.exit(1)); "throw" raises an `ApiError` so an
+ * embedding process can catch it. The MCP entrypoint flips this to "throw".
+ */
+let _failureMode: "exit" | "throw" = "exit";
+
+export function setApiFailureMode(mode: "exit" | "throw"): void {
+  _failureMode = mode;
+}
+
+/**
+ * Shared terminal error path for all fetch sites. In "exit" mode prints the message
+ * and exits 1 (byte-identical CLI behavior); in "throw" mode raises an ApiError with
+ * the same normalized message.
+ */
 export function failWithApiError(status: number, body: string): never {
-  console.error(formatApiError(status, body));
+  const message = formatApiError(status, body);
+  if (_failureMode === "throw") {
+    throw new ApiError(status, body, message);
+  }
+  console.error(message);
   process.exit(1);
 }
 
