@@ -28,6 +28,10 @@ async function connectClient(toolset: Toolset): Promise<Client> {
 
 afterEach(() => {
   __resetContextForTests();
+  // Undo the global mutations the error-path test makes, so state never leaks between tests.
+  setApiFailureMode("exit");
+  delete process.env.DILLION_API_KEY;
+  delete process.env.DILLION_BASE_URL;
 });
 
 describe("createDillionMcpServer — handshake + tool registration", () => {

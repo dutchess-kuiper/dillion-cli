@@ -126,15 +126,19 @@ export async function api(
     method?: string;
     body?: any;
     raw?: boolean;
+    /** Optional abort signal (e.g. AbortSignal.timeout) so a long-lived caller can bound a
+     * hung request. Omitted by the CLI, which keeps the original untimed behavior. */
+    signal?: AbortSignal;
   } = {}
 ): Promise<any> {
   const { apiKey, baseUrl } = await config();
-  const { method = "GET", body, raw = false } = options;
+  const { method = "GET", body, raw = false, signal } = options;
 
   const res = await fetch(`${baseUrl}${path}`, {
     method,
     headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!res.ok) {

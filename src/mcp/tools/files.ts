@@ -8,6 +8,7 @@ import { requireAbsolute, sanitizeFileName, saveBufferToDir } from "../lib/downl
 import { boundedJobWait } from "../lib/poll";
 import { jsonContent } from "../lib/result";
 import { registerTool, type Toolset } from "../lib/register";
+import { FILE_DOWNLOAD_TIMEOUT_MS, JOB_POLL_FETCH_TIMEOUT_MS } from "../lib/timeouts";
 import { truncate } from "../lib/trim";
 
 /**
@@ -148,7 +149,7 @@ export function registerFilesTools(server: McpServer, toolset: Toolset): void {
         try {
           if (entry.error) throw new Error(String(entry.error));
           if (!entry.url) throw new Error("Download URL missing from response");
-          const r = await fetch(entry.url);
+          const r = await fetch(entry.url, { signal: AbortSignal.timeout(FILE_DOWNLOAD_TIMEOUT_MS) });
           if (!r.ok) throw new Error(`Signed URL download failed with ${r.status}`);
           const fileName = sanitizeFileName(entry.fileName || jobId);
           const path = await saveBufferToDir(destDir, fileName, Buffer.from(await r.arrayBuffer()));
@@ -198,7 +199,10 @@ export function registerFilesTools(server: McpServer, toolset: Toolset): void {
           jobId: String(jobId),
           intervalSeconds: args.intervalSeconds,
           maxWaitSeconds: args.maxWaitSeconds,
-          fetchJob: (id) => api(`/jobs/${encodeURIComponent(id)}`) as Promise<JobWaitPayload>,
+          fetchJob: (id) =>
+            api(`/jobs/${encodeURIComponent(id)}`, {
+              signal: AbortSignal.timeout(JOB_POLL_FETCH_TIMEOUT_MS),
+            }) as Promise<JobWaitPayload>,
         });
       }
       return jsonContent(result);

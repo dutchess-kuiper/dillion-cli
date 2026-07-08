@@ -6,6 +6,7 @@ import { requireProject } from "../lib/context";
 import { boundedJobWait } from "../lib/poll";
 import { jsonContent } from "../lib/result";
 import { registerTool, type Toolset } from "../lib/register";
+import { JOB_POLL_FETCH_TIMEOUT_MS } from "../lib/timeouts";
 import { trimJobsListItem } from "../lib/trim";
 
 const strArray = z.array(z.string()).optional();
@@ -132,7 +133,10 @@ export function registerJobsTools(server: McpServer, toolset: Toolset): void {
         jobId: args.jobId,
         intervalSeconds: args.intervalSeconds,
         maxWaitSeconds: args.maxWaitSeconds,
-        fetchJob: (id) => api(`/jobs/${encodeURIComponent(id)}`) as Promise<JobWaitPayload>,
+        fetchJob: (id) =>
+          api(`/jobs/${encodeURIComponent(id)}`, {
+            signal: AbortSignal.timeout(JOB_POLL_FETCH_TIMEOUT_MS),
+          }) as Promise<JobWaitPayload>,
       });
       return jsonContent(result);
     },
