@@ -216,6 +216,16 @@ const REVENUE = [
   { month: "Jun", revenue: 17.6 },
 ];
 
+/**
+ * MEMO-CHAT CONTRACT (required — the VDR extracts chat context from the DOM):
+ * 1. Every top-level section is a semantic <section id="kebab-case-id"> with a
+ *    heading. Chat citations and navigation scroll to these ids.
+ * 2. Never put ids on layout wrappers (page shells, sticky headers) — only on
+ *    real sections. Keep ids stable across versions.
+ * 3. Every source reference uses <Cite jobId chunkId> from the bridge — it
+ *    renders the data-job-id attributes chat needs to open sources. Do not
+ *    hand-roll citation chips.
+ */
 export default function App() {
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
@@ -233,7 +243,7 @@ export default function App() {
         </p>
       </header>
 
-      <section className="mt-10">
+      <section id="revenue-trajectory" className="mt-10">
         <h2 className="text-xl font-semibold text-fdd-text">
           Revenue trajectory
         </h2>
@@ -273,7 +283,7 @@ export default function App() {
         </div>
       </section>
 
-      <section className="mt-10">
+      <section id="findings" className="mt-10">
         <h2 className="text-xl font-semibold text-fdd-text">Findings</h2>
         <p className="mt-3 text-fdd-text">
           Revenue grew 41% YoY driven by enterprise expansion. Pricing held
@@ -477,6 +487,22 @@ bun run build # produces ./dist
 The scaffold ships **Tailwind v4** (\`@tailwindcss/vite\`) and **Recharts**.
 Use Tailwind utility classes anywhere; the FDD palette is exposed as theme
 tokens (\`bg-fdd-primary\`, \`text-fdd-muted\`, \`border-fdd-border\`, etc.).
+
+## Memo chat contract (required)
+
+The VDR renders this bundle headlessly and extracts memo-chat context (section
+text, tables, chart data, citations) from the live DOM. For chat citations,
+navigation, and source-opening to work:
+
+1. Every top-level section is a semantic \`<section id="kebab-case-id">\` with
+   a heading. Section ids are exactly what chat cites and scrolls to.
+2. Ids are stable across versions and never on layout wrappers (page shells,
+   sticky headers) — only on real sections.
+3. Every source reference uses \`<Cite jobId … chunkId …>\` from
+   \`src/lib/dillion-bridge.tsx\` — it renders the \`data-job-id\` attributes
+   chat needs. Hand-rolled onClick chips will not resolve sources.
+
+\`dillion artifacts publish\` warns when the built bundle is missing these.
 
 ## Citations
 

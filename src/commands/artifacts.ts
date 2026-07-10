@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat } from "fs/promises";
+import { copyFile, mkdir, readFile, readdir, stat } from "fs/promises";
 import { basename, dirname, join, resolve } from "path";
 import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
@@ -225,6 +225,46 @@ function memoChatPublishFields(
   return undefined;
 }
 
+/**
+ * Memo-chat contract preflight (warn-only). The VDR extracts chat context from
+ * the rendered DOM, so the built bundle should contain semantic <section id>
+ * roots and <Cite>-rendered data-job-id attributes. Content lives in the
+ * minified JS, so these are string heuristics — loud warnings, never fatal.
+ */
+async function warnOnMemoChatContract(distDir: string): Promise<void> {
+  try {
+    const assetsDir = join(distDir, "assets");
+    let blob = await readFile(join(distDir, "index.html"), "utf8").catch(() => "");
+    try {
+      for (const name of await readdir(assetsDir)) {
+        if (name.endsWith(".js")) {
+          blob += await readFile(join(assetsDir, name), "utf8");
+        }
+      }
+    } catch {
+      // no assets dir — plain html bundle; index.html alone is checked
+    }
+
+    const hasSections = blob.includes('("section"') || blob.includes("<section");
+    const hasCitations = blob.includes("data-job-id");
+    if (!hasSections) {
+      console.warn(
+        "WARN: no semantic <section id> markup detected in the build — memo chat will not " +
+          "get real sections (citations/pill navigation degrade). Wrap top-level sections in " +
+          '<section id="kebab-id"> (see the scaffold README "Memo chat contract").'
+      );
+    }
+    if (!hasCitations) {
+      console.warn(
+        "WARN: no data-job-id citation attributes detected in the build — memo chat cannot " +
+          "open sources. Render source chips with <Cite jobId=… chunkId=…> from the bridge."
+      );
+    }
+  } catch {
+    // preflight is best-effort; never block a publish on it
+  }
+}
+
 // ─── publish ──────────────────────────────────────────────────────────────
 
 async function artifactsPublish(args: string[]) {
@@ -247,6 +287,8 @@ async function artifactsPublish(args: string[]) {
     console.error(`${distDir} does not contain index.html — refusing to publish.`);
     process.exit(1);
   }
+
+  await warnOnMemoChatContract(distDir);
 
   const reportId = flags.report || flags.r;
   const json = flags.json !== undefined;
