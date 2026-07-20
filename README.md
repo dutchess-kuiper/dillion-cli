@@ -20,7 +20,27 @@ By default connects to `https://bastion.dillion.ai`. To use a different server:
 dillion auth <your-api-key> --url=http://localhost:3100
 ```
 
+Check what's stored and whether the key still works:
+
+```sh
+dillion auth status          # server, masked key, org, project + live validation
+dillion auth status --json   # machine-readable; exit 0 = valid, 1 = invalid/not authenticated
+```
+
 ## Commands
+
+### Organizations
+
+If your key belongs to multiple organizations, select the one to act in (sent on every request):
+
+```sh
+dillion org list                 # list memberships (marks the active one)
+dillion org use <id-or-name>     # set the active organization
+dillion org show                 # print the active organization
+dillion org clear                # remove the saved selection
+```
+
+Override for a single command with the global `--org-id <org_...>` flag.
 
 ### Search
 
@@ -81,6 +101,15 @@ dillion files search "agreement" -p <project-id> --json
 
 `--out` is treated as a directory when downloading multiple jobs or when the path looks like a folder; otherwise it is the literal output filename.
 
+Upload files for ingestion:
+
+```sh
+dillion files upload report.pdf contract.docx -p <project-id>
+dillion files upload report.pdf -p <project-id> --wait   # block until ingestion completes
+```
+
+`--wait` polls each upload's job until it finishes (`--interval <sec>` to change the poll rate, `--timeout <sec>` to cap the wait; default is no limit).
+
 ### Jobs
 
 List jobs with filters:
@@ -94,6 +123,13 @@ Get job details:
 
 ```sh
 dillion jobs get <job-id>
+```
+
+Wait for ingestion to finish (shows per-step timing while polling):
+
+```sh
+dillion jobs wait <job-id>
+dillion jobs wait <job-id> --timeout 7200   # give up after 2h; exit 1 on failure/timeout
 ```
 
 ### Agent
@@ -168,6 +204,18 @@ dillion artifacts attach-pdf <report-id> --remove
 # Target a specific version (default: current). Share links pinned to a
 # different version keep that version's PDF.
 dillion artifacts attach-pdf <report-id> --pdf ./v1.pdf --version 1
+```
+
+#### Ask memo chat
+
+Toggle the "Ask memo" chat on the VDR viewer for a published report (off by default):
+
+```sh
+dillion artifacts memo-chat enable <report-id>
+dillion artifacts memo-chat disable <report-id>   # report stays viewable
+
+# Or set it at publish time
+dillion artifacts publish ./report --report <report-id> --memo-chat
 ```
 
 #### Single-report share links
@@ -272,6 +320,7 @@ dillion help         # Show help
 | Flag | Short | Description |
 |------|-------|-------------|
 | `--project` | `-p` | Project ID |
+| `--org-id` | | Act in this organization for one command (overrides `org use`) |
 | `--description` | `-d` | Project description (`projects create`) |
 | `--name` | | Filter projects by name substring (`projects list`) |
 | `--json` | | Output raw JSON |
@@ -296,6 +345,19 @@ dillion update
 sudo rm /usr/local/bin/dillion
 rm -rf ~/.config/dillion
 ```
+
+## Development
+
+Requires [Bun](https://bun.sh). Run from source, test, and typecheck:
+
+```sh
+bun src/index.ts <command>   # run the CLI locally
+bun test                     # unit tests
+bunx tsc --noEmit            # typecheck
+bun run build                # compile platform binaries into dist/
+```
+
+Architecture and conventions are documented in [CLAUDE.md](CLAUDE.md). Note that `main` is protected — all changes land via pull request.
 
 ## Releasing (maintainers)
 
