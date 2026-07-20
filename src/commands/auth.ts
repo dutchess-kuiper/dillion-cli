@@ -85,9 +85,10 @@ export async function authCommand(args: string[]) {
   // Backstop: any non-key first arg (a mistyped subcommand like `auth show`, or a stray word)
   // must not be silently sent to /orgs as a bearer token — that produced the misleading
   // "Invalid API key" for `auth status`. `status` is routed away before we get here; this
-  // catches everything else.
+  // catches everything else. Don't echo the arg back: a rejected value might be a real secret
+  // (a truncated paste, a wrong-provider key) and would leak into logs / terminal scrollback.
   if (!looksLikeApiKey(apiKey)) {
-    console.error(`Not a valid API key: "${apiKey}" (expected a key starting with "dil_").`);
+    console.error(`Not a valid API key (expected a key starting with "dil_").`);
     console.error("Usage: dillion auth <api-key> [--url=https://...]");
     console.error("       dillion auth status   Show and validate stored credentials");
     process.exit(1);
