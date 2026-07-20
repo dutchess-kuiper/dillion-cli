@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAuthStatusReport,
+  classifyOrgsStatus,
   looksLikeApiKey,
   maskApiKey,
   type KeyCheck,
@@ -48,7 +49,7 @@ describe("buildAuthStatusReport", () => {
   test("no config -> unauthenticated, exit 1", () => {
     const r = buildAuthStatusReport(null, null);
     expect(r.exitCode).toBe(1);
-    expect(r.data.authenticated).toBe(false);
+    expect(r.data.configured).toBe(false);
     expect(r.data.keyStatus).toBe("unauthenticated");
     expect(r.lines.join("\n")).toContain("Not authenticated");
   });
@@ -73,6 +74,8 @@ describe("buildAuthStatusReport", () => {
     expect(r.exitCode).toBe(1);
     expect(r.data.keyStatus).toBe("invalid");
     expect(r.lines.join("\n")).toContain("INVALID");
+    // `configured` means "config present", not "key works" — it stays true for a bad key.
+    expect(r.data.configured).toBe(true);
   });
 
   test("unreachable server -> unverified but exit 0 (local config intact)", () => {
@@ -94,6 +97,13 @@ describe("buildAuthStatusReport", () => {
     expect(r.exitCode).toBe(0);
     expect(r.data.keyStatus).toBe("unverified");
     expect(r.lines.join("\n")).toContain("unexpected server response");
+  });
+
+  test("unsupported server (404) -> unverified, exit 0, actionable hint", () => {
+    const r = buildAuthStatusReport(CONFIG, { kind: "unsupported-server" });
+    expect(r.exitCode).toBe(0);
+    expect(r.data.keyStatus).toBe("unverified");
+    expect(r.lines.join("\n")).toContain("doesn't support org discovery");
   });
 
   test("stale orgId not in memberships -> shows id, no resolved name", () => {
@@ -118,5 +128,27 @@ describe("buildAuthStatusReport", () => {
     expect(r.data.orgName).toBeNull();
     // Falls back to the bare id since we couldn't fetch memberships.
     expect(r.lines.join("\n")).toContain("Org:      org_acme");
+  });
+});
+
+describe("classifyOrgsStatus", () => {
+  test("401 and 403 -> invalid", () => {
+    expect(classifyOrgsStatus(401).kind).toBe("invalid");
+    expect(classifyOrgsStatus(403).kind).toBe("invalid");
+  });
+
+  test("404 -> unsupported-server (kept distinct from a generic error)", () => {
+    expect(classifyOrgsStatus(404).kind).toBe("unsupported-server");
+  });
+
+  test("other non-2xx -> server-error carrying the status", () => {
+    expect(classifyOrgsStatus(500)).toEqual({ kind: "server-error", status: 500 });
+    expect(classifyOrgsStatus(503)).toEqual({ kind: "server-error", status: 503 });
+    expect(classifyOrgsStatus(429)).toEqual({ kind: "server-error", status: 429 });
+  });
+
+  test("2xx -> ok (caller proceeds to parse the body)", () => {
+    expect(classifyOrgsStatus(200).kind).toBe("ok");
+    expect(classifyOrgsStatus(204).kind).toBe("ok");
   });
 });

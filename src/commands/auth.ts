@@ -154,13 +154,15 @@ export type KeyCheck =
   | { kind: "valid"; orgs: OrgEntry[] }
   | { kind: "invalid" }
   | { kind: "unreachable" }
+  | { kind: "unsupported-server" }
   | { kind: "unexpected" }
   | { kind: "server-error"; status: number };
 
 export interface AuthStatusReport {
   /** Machine-readable shape for `--json`. */
   data: {
-    authenticated: boolean;
+    /** Whether a config file with a key is present — NOT whether the key works (see keyStatus). */
+    configured: boolean;
     server: string | null;
     apiKey: string | null;
     orgId: string | null;
@@ -175,10 +177,11 @@ export interface AuthStatusReport {
 
 /**
  * Build the `auth status` report from the stored config and a live key check. Pure so the
- * cases (no config, valid, invalid, and the three "can't verify" outcomes) are unit-testable
+ * cases (no config, valid, invalid, and the four "can't verify" outcomes) are unit-testable
  * without fs/network. A missing config is the only failure that exits non-zero besides an
- * outright-invalid key; the server merely being unreachable leaves a valid local config
- * reported as unverified, not broken.
+ * outright-invalid key; anything that merely blocks verification (unreachable, server error,
+ * unsupported server, unexpected body) leaves a valid local config reported as unverified,
+ * not broken.
  */
 export function buildAuthStatusReport(
   config: Config | null,
@@ -187,7 +190,7 @@ export function buildAuthStatusReport(
   if (!config) {
     return {
       data: {
-        authenticated: false,
+        configured: false,
         server: null,
         apiKey: null,
         orgId: null,
@@ -231,6 +234,11 @@ export function buildAuthStatusReport(
     case "unreachable":
       lines.push("Key status: could not verify (server unreachable)");
       break;
+    case "unsupported-server":
+      lines.push(
+        "Key status: could not verify (server doesn't support org discovery; update the server or CLI)"
+      );
+      break;
     default:
       lines.push("Key status: could not verify (unexpected server response)");
       break;
@@ -238,7 +246,7 @@ export function buildAuthStatusReport(
 
   return {
     data: {
-      authenticated: true,
+      configured: true,
       server: config.baseUrl,
       apiKey: maskApiKey(config.apiKey),
       orgId: config.orgId ?? null,
@@ -251,21 +259,47 @@ export function buildAuthStatusReport(
   };
 }
 
+/** Hard cap on the `auth status` validation request so a silent host can't hang the command. */
+const AUTH_CHECK_TIMEOUT_MS = 10_000;
+
+/**
+ * Classify the HTTP status of a `GET /orgs` response into a KeyCheck outcome, or `ok` when a
+ * 2xx means the caller should still parse the body. Pure and total so the status ladder — the
+ * logic whose silent breakage caused the original `auth status` bug — is unit-testable.
+ *
+ * 404 is its own `unsupported-server` case (mirrors the login flow's actionable hint) rather
+ * than a generic error: it means the server predates org discovery, not that the key is bad.
+ */
+export function classifyOrgsStatus(
+  status: number
+):
+  | { kind: "invalid" }
+  | { kind: "unsupported-server" }
+  | { kind: "server-error"; status: number }
+  | { kind: "ok" } {
+  if (status === 401 || status === 403) return { kind: "invalid" };
+  if (status === 404) return { kind: "unsupported-server" };
+  if (status < 200 || status >= 300) return { kind: "server-error", status };
+  return { kind: "ok" };
+}
+
 /**
  * Validate the stored key against the same pre-org-selection `GET /orgs` route login uses.
  * Sends only the bearer token (no X-Dillion-Org-Id) so the result reflects the key itself,
- * not the current org selection. Never exits — maps every outcome to a KeyCheck.
+ * not the current org selection. Never exits — maps every outcome (including a timeout, which
+ * rejects into the `.catch` below) to a KeyCheck.
  */
 async function checkStoredKey(config: Config): Promise<KeyCheck> {
   const res = await fetch(`${config.baseUrl}/orgs`, {
     method: "GET",
     headers: { Authorization: `Bearer ${config.apiKey}` },
+    signal: AbortSignal.timeout(AUTH_CHECK_TIMEOUT_MS),
   }).catch(() => null);
 
   if (!res) return { kind: "unreachable" };
-  if (res.status === 401 || res.status === 403) return { kind: "invalid" };
-  if (res.status === 404) return { kind: "unexpected" };
-  if (!res.ok) return { kind: "server-error", status: res.status };
+
+  const classified = classifyOrgsStatus(res.status);
+  if (classified.kind !== "ok") return classified;
 
   const parsed = parseOrgsResponse(await res.json().catch(() => null));
   if ("unexpected" in parsed) return { kind: "unexpected" };
