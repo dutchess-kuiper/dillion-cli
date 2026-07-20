@@ -1,5 +1,6 @@
 import { loadConfig, saveConfig, CONFIG_DIR, type Config } from "../config";
 import { mkdirSync } from "fs";
+import { parseFlags } from "../flags";
 import type { OrgEntry } from "./org";
 
 export interface AuthOutcome {
@@ -77,6 +78,18 @@ export async function authCommand(args: string[]) {
 
   if (!apiKey || apiKey.startsWith("--")) {
     console.error("Usage: dillion auth <api-key> [--url=https://...]");
+    console.error("       dillion auth status   Show and validate stored credentials");
+    process.exit(1);
+  }
+
+  // Backstop: any non-key first arg (a mistyped subcommand like `auth show`, or a stray word)
+  // must not be silently sent to /orgs as a bearer token — that produced the misleading
+  // "Invalid API key" for `auth status`. `status` is routed away before we get here; this
+  // catches everything else.
+  if (!looksLikeApiKey(apiKey)) {
+    console.error(`Not a valid API key: "${apiKey}" (expected a key starting with "dil_").`);
+    console.error("Usage: dillion auth <api-key> [--url=https://...]");
+    console.error("       dillion auth status   Show and validate stored credentials");
     process.exit(1);
   }
 
@@ -123,4 +136,161 @@ export async function authCommand(args: string[]) {
   await saveConfig(config);
 
   for (const line of lines) console.log(line);
+}
+
+/** Whether a first arg to `dillion auth` is a credential rather than a mistyped subcommand. */
+export function looksLikeApiKey(arg: string): boolean {
+  return arg.startsWith("dil_");
+}
+
+/** Redact a stored key for display: fixed mask + last 4 chars (no length leak). */
+export function maskApiKey(key: string): string {
+  if (!key) return "(none)";
+  return `****${key.length >= 4 ? key.slice(-4) : key}`;
+}
+
+/** Outcome of validating the stored key against `GET /orgs`. */
+export type KeyCheck =
+  | { kind: "valid"; orgs: OrgEntry[] }
+  | { kind: "invalid" }
+  | { kind: "unreachable" }
+  | { kind: "unexpected" }
+  | { kind: "server-error"; status: number };
+
+export interface AuthStatusReport {
+  /** Machine-readable shape for `--json`. */
+  data: {
+    authenticated: boolean;
+    server: string | null;
+    apiKey: string | null;
+    orgId: string | null;
+    orgName: string | null;
+    projectId: string | null;
+    keyStatus: "valid" | "invalid" | "unverified" | "unauthenticated";
+  };
+  /** Human-readable lines, printed in order. */
+  lines: string[];
+  exitCode: number;
+}
+
+/**
+ * Build the `auth status` report from the stored config and a live key check. Pure so the
+ * cases (no config, valid, invalid, and the three "can't verify" outcomes) are unit-testable
+ * without fs/network. A missing config is the only failure that exits non-zero besides an
+ * outright-invalid key; the server merely being unreachable leaves a valid local config
+ * reported as unverified, not broken.
+ */
+export function buildAuthStatusReport(
+  config: Config | null,
+  check: KeyCheck | null
+): AuthStatusReport {
+  if (!config) {
+    return {
+      data: {
+        authenticated: false,
+        server: null,
+        apiKey: null,
+        orgId: null,
+        orgName: null,
+        projectId: null,
+        keyStatus: "unauthenticated",
+      },
+      lines: ["Not authenticated. Run: dillion auth <api-key>"],
+      exitCode: 1,
+    };
+  }
+
+  // Resolve a friendly org name from the membership list only when the key checked out.
+  const orgName =
+    config.orgId && check?.kind === "valid"
+      ? check.orgs.find((o) => o.id === config.orgId)?.name ?? null
+      : null;
+
+  const lines: string[] = [
+    `Server:   ${config.baseUrl}`,
+    `API key:  ${maskApiKey(config.apiKey)}`,
+    `Org:      ${config.orgId ? (orgName ? `${orgName} (${config.orgId})` : config.orgId) : "(none selected)"}`,
+    `Project:  ${config.projectId ?? "(none)"}`,
+  ];
+
+  let keyStatus: AuthStatusReport["data"]["keyStatus"] = "unverified";
+  let exitCode = 0;
+  switch (check?.kind) {
+    case "valid":
+      keyStatus = "valid";
+      lines.push("Key status: valid");
+      break;
+    case "invalid":
+      keyStatus = "invalid";
+      exitCode = 1;
+      lines.push("Key status: INVALID — re-authenticate with: dillion auth <api-key>");
+      break;
+    case "server-error":
+      lines.push(`Key status: could not verify (server error ${check.status})`);
+      break;
+    case "unreachable":
+      lines.push("Key status: could not verify (server unreachable)");
+      break;
+    default:
+      lines.push("Key status: could not verify (unexpected server response)");
+      break;
+  }
+
+  return {
+    data: {
+      authenticated: true,
+      server: config.baseUrl,
+      apiKey: maskApiKey(config.apiKey),
+      orgId: config.orgId ?? null,
+      orgName,
+      projectId: config.projectId ?? null,
+      keyStatus,
+    },
+    lines,
+    exitCode,
+  };
+}
+
+/**
+ * Validate the stored key against the same pre-org-selection `GET /orgs` route login uses.
+ * Sends only the bearer token (no X-Dillion-Org-Id) so the result reflects the key itself,
+ * not the current org selection. Never exits — maps every outcome to a KeyCheck.
+ */
+async function checkStoredKey(config: Config): Promise<KeyCheck> {
+  const res = await fetch(`${config.baseUrl}/orgs`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${config.apiKey}` },
+  }).catch(() => null);
+
+  if (!res) return { kind: "unreachable" };
+  if (res.status === 401 || res.status === 403) return { kind: "invalid" };
+  if (res.status === 404) return { kind: "unexpected" };
+  if (!res.ok) return { kind: "server-error", status: res.status };
+
+  const parsed = parseOrgsResponse(await res.json().catch(() => null));
+  if ("unexpected" in parsed) return { kind: "unexpected" };
+  return { kind: "valid", orgs: parsed.orgs };
+}
+
+export async function authStatusCommand(args: string[]) {
+  const { flags } = parseFlags(args);
+  if (flags.help === "" || flags.h === "") {
+    console.log(
+      "Usage: dillion auth status [--json]\n\n" +
+        "Show the stored server, API key, org, and project, then validate the key against the server."
+    );
+    return;
+  }
+
+  const config = await loadConfig();
+  const check = config ? await checkStoredKey(config) : null;
+  const report = buildAuthStatusReport(config, check);
+
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify(report.data, null, 2));
+  } else {
+    for (const line of report.lines) console.log(line);
+  }
+
+  if (report.exitCode !== 0) process.exit(report.exitCode);
 }
