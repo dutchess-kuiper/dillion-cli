@@ -88,6 +88,7 @@ Usage: dillion <command> [options]
 
 Commands:
   auth <api-key> [--url=...]   Save API credentials
+  auth status [--json]         Show stored credentials and validate the key
   update                       Update to latest version
   health                       Check server status
 
@@ -178,7 +179,8 @@ async function main() {
 
   switch (command) {
     case "auth": {
-      const { authCommand } = await import("./commands/auth");
+      const { authCommand, authStatusCommand } = await import("./commands/auth");
+      if (subcommand === "status") return authStatusCommand(subrest);
       return authCommand(rest);
     }
     case "docs": {
