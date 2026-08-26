@@ -38,6 +38,7 @@ JOBS
   dillion jobs list -p <pid>              List jobs in a project
     --status <status>                     Filter by status
     --search <text>                       Search by filename
+    --archived                            Show only archived jobs (--archived false = active only)
     --limit <n>                           Max results (default: 50)
     --offset <n>                          Pagination offset
   dillion jobs get <job-id>               Get job details and steps
@@ -45,6 +46,9 @@ JOBS
     --interval <sec>                      Poll interval (default: 5)
     --timeout <sec>                       Max wait, 0 = none (default: 0)
                                           (prints per-step timing while polling)
+  dillion jobs archive <job-id...>        Archive jobs (excluded from search/agent, cannot be retried)
+  dillion jobs unarchive <job-id...>      Restore archived jobs
+    --json                                Print the updated job payload(s)
 
 AGENT
   dillion agent ask <query> -p <pid>      Ask a question (generates answer)
@@ -82,6 +86,7 @@ EXAMPLES
   dillion agent ask "What are the key covenants?" -p 8f3a...
   dillion jobs list -p 8f3a... --json | jq '.jobs[].fileName'
   dillion jobs wait <job-id> --timeout 7200
+  dillion jobs archive <job-id> <job-id>
   dillion project use 8f3a...
   dillion files upload ./contract.pdf --wait
   dillion files upload ./contract.pdf -p 8f3a... --json | jq -r .job_id | xargs -I{} dillion jobs wait {}
