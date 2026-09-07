@@ -229,3 +229,84 @@ export async function jobsGetCommand(args: string[]) {
     }
   }
 }
+
+const JOBS_ARCHIVE_HELP = `
+Usage: dillion jobs archive <job-id...>
+       dillion jobs unarchive <job-id...>
+
+Archive or unarchive one or more jobs (files) by job id.
+
+Archived jobs are hidden from search and agent retrieval and cannot be
+retried until they are unarchived. Find them with:
+  dillion jobs list -p <pid> --archived
+
+  --json             Print the updated job payload(s) as JSON
+
+Exits 0 when every job was updated; exits 1 on the first failure.
+Archiving is idempotent, so re-running after a partial failure is safe.
+`.trim();
+
+export interface JobsArchiveArgs {
+  help: boolean;
+  json: boolean;
+  jobIds: string[];
+  error?: string;
+}
+
+/**
+ * Parse argv for `jobs archive` / `jobs unarchive`. Pure: no IO, no exits — the
+ * wrapper below decides what to print. Bare `--help` / `-h` parse to "" via parseFlags.
+ */
+export function parseJobsArchiveArgs(args: string[]): JobsArchiveArgs {
+  // Strip bare `--json` before parseFlags: it greedily binds the next non-dash
+  // token as a flag value, so `archive --json <id>` would eat the id (and
+  // `archive <id1> --json <id2>` would silently drop <id2>). Position-independent
+  // now; `--json=true` still arrives as a real flag, hence the second check.
+  const filtered = args.filter((a) => a !== "--json");
+  const { flags, positional } = parseFlags(filtered);
+
+  if (flags.help === "" || flags.h === "") {
+    return { help: true, json: false, jobIds: [] };
+  }
+
+  const json = filtered.length !== args.length || flags.json !== undefined;
+  const jobIds = positional;
+
+  if (jobIds.length === 0) {
+    return { help: false, json, jobIds, error: "No job ids given." };
+  }
+
+  return { help: false, json, jobIds };
+}
+
+/** `jobs archive` and `jobs unarchive` — one wrapper, `archived` picks the verb. */
+export async function jobsArchiveCommand(args: string[], archived: boolean) {
+  const parsed = parseJobsArchiveArgs(args);
+
+  if (parsed.help) {
+    console.log(JOBS_ARCHIVE_HELP);
+    return;
+  }
+  if (parsed.error) {
+    console.error(JOBS_ARCHIVE_HELP);
+    process.exit(1);
+  }
+
+  const verb = archived ? "Archived" : "Unarchived";
+  const results: any[] = [];
+
+  for (const jobId of parsed.jobIds) {
+    // api() exits 1 with a formatted error on the first non-2xx.
+    const data = await api(`/jobs/${encodeURIComponent(jobId)}/archive`, {
+      method: "PATCH",
+      body: { archived },
+    });
+    results.push(data);
+    // Bastion proxies the backend's snake_case JobResponse verbatim.
+    if (!parsed.json) console.log(`${verb} ${data?.file_name ?? jobId} (${jobId})`);
+  }
+
+  if (parsed.json) {
+    console.log(JSON.stringify(parsed.jobIds.length === 1 ? results[0] : results, null, 2));
+  }
+}

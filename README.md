@@ -117,6 +117,8 @@ List jobs with filters:
 ```sh
 dillion jobs list -p <project-id>
 dillion jobs list -p <project-id> --status completed --search "lease"
+dillion jobs list -p <project-id> --archived         # archived jobs only
+dillion jobs list -p <project-id> --archived false   # active jobs only
 ```
 
 Get job details:
@@ -131,6 +133,18 @@ Wait for ingestion to finish (shows per-step timing while polling):
 dillion jobs wait <job-id>
 dillion jobs wait <job-id> --timeout 7200   # give up after 2h; exit 1 on failure/timeout
 ```
+
+Archive or unarchive jobs (accepts multiple job ids):
+
+```sh
+dillion jobs archive <job-id> <job-id>
+dillion jobs unarchive <job-id> --json
+```
+
+Archived jobs are excluded from `dillion search` and `dillion agent`, and cannot be
+retried until they are unarchived. List them with `dillion jobs list -p <project-id> --archived`.
+Archiving is idempotent; the commands exit 0 when every job was updated and exit 1 on the
+first failure.
 
 ### Agent
 

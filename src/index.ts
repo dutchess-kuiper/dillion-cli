@@ -114,6 +114,8 @@ Commands:
   jobs list -p <pid> --all     Fetch all pages
   jobs get <job-id>            Get job details
   jobs wait <job-id>          Wait until ingestion completes (or fails)
+  jobs archive <job-id...>     Archive jobs (hidden from search/agent)
+  jobs unarchive <job-id...>   Restore archived jobs
   agent ask <query> -p <pid>   Ask agent a question
   agent search <query> -p <pid>  Agent retrieval search
   obligations <pid>            Download obligations CSV
@@ -288,7 +290,11 @@ async function main() {
         const { jobsWaitCommand } = await import("./commands/jobs");
         return jobsWaitCommand(subrest);
       }
-      console.error("Usage: dillion jobs <list|get|wait>");
+      if (subcommand === "archive" || subcommand === "unarchive") {
+        const { jobsArchiveCommand } = await import("./commands/jobs");
+        return jobsArchiveCommand(subrest, subcommand === "archive");
+      }
+      console.error("Usage: dillion jobs <list|get|wait|archive|unarchive>");
       process.exit(1);
     }
     case "agent": {
