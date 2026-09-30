@@ -313,7 +313,7 @@ const BRIDGE_TS = `/**
 import { useEffect, useState, type ReactNode } from "react";
 
 export type DillionMessage =
-  | { source: "dillion-artifact"; v: 1; type: "OPEN_SOURCE"; jobId: string; chunkId?: string; label?: string }
+  | { source: "dillion-artifact"; v: 1; type: "OPEN_SOURCE"; jobId: string; chunkId?: string; label?: string; blocks?: number[] }
   | { source: "dillion-artifact"; v: 1; type: "READY" }
   | { source: "dillion-artifact"; v: 1; type: "SCROLL_TO_SECTION"; sectionId: string }
   | { source: "dillion-artifact"; v: 1; type: "HIGHLIGHT_SECTION"; sectionId: string }
@@ -357,7 +357,12 @@ function inFrame(): boolean {
   }
 }
 
-export function openSource(jobId: string, chunkId?: string, label?: string): void {
+export function openSource(
+  jobId: string,
+  chunkId?: string,
+  label?: string,
+  blocks?: number[],
+): void {
   if (!inFrame()) {
     if (!warnedOnce) {
       console.info(
@@ -374,6 +379,8 @@ export function openSource(jobId: string, chunkId?: string, label?: string): voi
     jobId,
     ...(chunkId ? { chunkId } : {}),
     ...(label ? { label } : {}),
+    // Block numbers only mean something with a chunkId; never send \`blocks: []\`.
+    ...(chunkId && blocks && blocks.length > 0 ? { blocks } : {}),
   };
   // The parent enforces its own origin allowlist; "*" is acceptable here
   // because the payload contains no secrets.
@@ -394,6 +401,8 @@ export interface CiteProps {
   jobId: string;
   chunkId?: string;
   label?: string | number;
+  /** Block numbers inside the chunk that back the claim (requires chunkId). */
+  blocks?: number[];
   /** Hover tooltip — falls back to a friendly default when omitted. */
   title?: string;
   /** Extra Tailwind classes appended to the .cite base. */
@@ -406,6 +415,7 @@ export function Cite({
   jobId,
   chunkId,
   label,
+  blocks,
   title,
   className = "",
   children,
@@ -430,7 +440,8 @@ export function Cite({
       className={\`cite \${className}\`.trim()}
       data-job-id={jobId}
       {...(chunkId ? { "data-chunk-id": chunkId } : {})}
-      onClick={() => openSource(jobId, chunkId, label?.toString())}
+      {...(chunkId && blocks && blocks.length > 0 ? { "data-blocks": blocks.join(",") } : {})}
+      onClick={() => openSource(jobId, chunkId, label?.toString(), blocks)}
       title={hoverTitle}
     >
       {text}
@@ -480,7 +491,9 @@ tokens (\`bg-fdd-primary\`, \`text-fdd-muted\`, \`border-fdd-border\`, etc.).
 
 ## Citations
 
-Use \`<Cite jobId="…" chunkId="…" label="1" />\` from \`src/lib/dillion-bridge.ts\`.
+Use \`<Cite jobId="…" chunkId="…" label="1" />\` from \`src/lib/dillion-bridge.tsx\`.
+Add \`blocks={[3, 4]}\` (with a \`chunkId\`) to highlight only those blocks
+inside the chunk; the numbers come from \`dillion search … --blocks --json\`.
 The component sends a \`postMessage\` to the parent shell when clicked; the
 parent resolves the citation and opens the source document. There is **no
 API key** in this bundle.
