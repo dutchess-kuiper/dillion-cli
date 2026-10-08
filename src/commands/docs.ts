@@ -11,6 +11,7 @@ SEARCH
     --limit <n>                           Max results (default: 10)
     --alpha <0-1>                         0 = keyword, 1 = semantic (default: 0.5)
     --job <id>                            Filter to a specific job
+    --blocks                              Include citable blocks per hit ([n] type p.page text)
 
 ORGANIZATIONS
   dillion org list                        List organizations you belong to (marks active)
