@@ -1,0 +1,35 @@
+# PR checks. Required status check on `main`. Releases are tag-driven (release.yml).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: test + typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Test
+        run: bun test
+      - name: Typecheck
+        run: bunx tsc --noEmit
+      - name: package.json version matches VERSION in src/index.ts
+        run: |
+          pkg=$(jq -r .version package.json)
+          src=$(sed -nE 's/^export const VERSION = "([^"]+)";/\1/p' src/index.ts)
+          [ "$pkg" = "$src" ] || { echo "::error::package.json $pkg != src/index.ts $src (RELEASING.md)"; exit 1; }
+          echo "OK: $pkg"
+      - name: Compiles
+        run: bun build --compile src/index.ts --outfile /tmp/dillion
