@@ -172,21 +172,29 @@ html, body {
 .cite {
   display: inline-flex;
   align-items: center;
+  height: 22px;
   margin: 0 2px;
-  padding: 1px 6px;
-  font-size: 0.78em;
-  border-radius: 4px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: 999px;
   background: rgba(27, 79, 114, 0.08);
   color: var(--color-fdd-primary);
   cursor: pointer;
-  vertical-align: text-top;
-  line-height: 1.4;
+  vertical-align: 1px;
+  line-height: 14px;
   font-weight: 500;
   transition: background 120ms ease;
 }
 
 .cite:hover {
   background: rgba(27, 79, 114, 0.18);
+}
+
+/* The chip whose source is open in the VDR card (set by the bridge listener). */
+.cite.is-active,
+.cite.is-active:hover {
+  background: #8624c6;
+  color: #fff;
 }
 
 .dillion-section-highlight {
@@ -317,10 +325,38 @@ export type DillionMessage =
   | { source: "dillion-artifact"; v: 1; type: "READY" }
   | { source: "dillion-artifact"; v: 1; type: "SCROLL_TO_SECTION"; sectionId: string }
   | { source: "dillion-artifact"; v: 1; type: "HIGHLIGHT_SECTION"; sectionId: string }
-  | { source: "dillion-artifact"; v: 1; type: "CLEAR_HIGHLIGHT" };
+  | { source: "dillion-artifact"; v: 1; type: "CLEAR_HIGHLIGHT" }
+  | { source: "dillion-artifact"; v: 1; type: "SOURCE_OPENED"; jobId: string; chunkId?: string }
+  | { source: "dillion-artifact"; v: 1; type: "SOURCE_CLOSED" };
 
 let warnedOnce = false;
 let bridgeListenerInstalled = false;
+
+// The chip that last fired OPEN_SOURCE (null when the click passed no element),
+// and the chip currently marked active. The shell confirms with SOURCE_OPENED /
+// SOURCE_CLOSED; clicks alone never change chip classes.
+let lastClicked: { element: HTMLElement; jobId: string; chunkId?: string } | null = null;
+let activeEl: HTMLElement | null = null;
+
+function clearActiveChip(): void {
+  if (activeEl) activeEl.classList.remove("is-active");
+  activeEl = null;
+}
+
+function markSourceOpened(jobId: string, chunkId?: string): void {
+  clearActiveChip();
+  const clicked = lastClicked;
+  if (
+    clicked &&
+    clicked.element.isConnected &&
+    clicked.jobId === jobId &&
+    // OPEN_SOURCE omits an empty chunkId, so treat "" and absent as equal.
+    (clicked.chunkId || undefined) === (chunkId || undefined)
+  ) {
+    clicked.element.classList.add("is-active");
+    activeEl = clicked.element;
+  }
+}
 
 function scrollToSection(sectionId: string): void {
   const el = document.getElementById(sectionId);
@@ -346,6 +382,12 @@ function installBridgeListener(): void {
         el.classList.remove("dillion-section-highlight");
       });
     }
+    if (data.type === "SOURCE_OPENED") {
+      markSourceOpened(data.jobId, data.chunkId);
+    }
+    if (data.type === "SOURCE_CLOSED") {
+      clearActiveChip();
+    }
   });
 }
 
@@ -362,6 +404,7 @@ export function openSource(
   chunkId?: string,
   label?: string,
   blocks?: number[],
+  element?: HTMLElement,
 ): void {
   if (!inFrame()) {
     if (!warnedOnce) {
@@ -382,6 +425,9 @@ export function openSource(
     // Block numbers only mean something with a chunkId; never send \`blocks: []\`.
     ...(chunkId && blocks && blocks.length > 0 ? { blocks } : {}),
   };
+  // Remember which chip asked; it turns active only when the shell replies
+  // with a matching SOURCE_OPENED.
+  lastClicked = element ? { element, jobId, chunkId } : null;
   // The parent enforces its own origin allowlist; "*" is acceptable here
   // because the payload contains no secrets.
   window.parent.postMessage(message, "*");
@@ -441,7 +487,7 @@ export function Cite({
       data-job-id={jobId}
       {...(chunkId ? { "data-chunk-id": chunkId } : {})}
       {...(chunkId && blocks && blocks.length > 0 ? { "data-blocks": blocks.join(",") } : {})}
-      onClick={() => openSource(jobId, chunkId, label?.toString(), blocks)}
+      onClick={(e) => openSource(jobId, chunkId, label?.toString(), blocks, e.currentTarget)}
       title={hoverTitle}
     >
       {text}
