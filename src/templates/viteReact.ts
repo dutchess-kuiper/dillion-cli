@@ -182,6 +182,7 @@ html, body {
   cursor: pointer;
   vertical-align: 1px;
   line-height: 14px;
+  white-space: nowrap;
   font-weight: 500;
   transition: background 120ms ease;
 }
