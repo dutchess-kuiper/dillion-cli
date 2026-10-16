@@ -198,6 +198,24 @@ html, body {
   color: #fff;
 }
 
+/*
+ * On screen, a long chip is cut off with an ellipsis instead of sticking out of
+ * its container (the full label is in the chip's title). Print keeps the full
+ * label. The 4px allows for the chip's 2px side margins.
+ */
+@media screen {
+  .cite {
+    max-width: calc(100% - 4px);
+  }
+
+  .cite-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
 .dillion-section-highlight {
   outline: 2px solid rgba(217, 119, 6, 0.55);
   outline-offset: 4px;
@@ -476,11 +494,14 @@ export function Cite({
   }, []);
 
   const text = children ?? label ?? "src";
-  const hoverTitle =
-    title ??
-    (embedded
-      ? "Open source document"
-      : "Citation (preview only — open inside Dillion to view source)");
+  // Plain-text label, so the default tooltip can show it in full when the chip
+  // is cut off with an ellipsis on screen.
+  const labelText =
+    typeof text === "string" || typeof text === "number" ? String(text) : undefined;
+  const hint = embedded
+    ? "Open source document"
+    : "Citation (preview only — open inside Dillion to view source)";
+  const hoverTitle = title ?? (labelText ? labelText + " — " + hint : hint);
   return (
     <button
       type="button"
@@ -491,7 +512,7 @@ export function Cite({
       onClick={(e) => openSource(jobId, chunkId, label?.toString(), blocks, e.currentTarget)}
       title={hoverTitle}
     >
-      {text}
+      <span className="cite-label">{text}</span>
     </button>
   );
 }
