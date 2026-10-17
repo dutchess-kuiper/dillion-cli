@@ -357,10 +357,11 @@ let bridgeListenerInstalled = false;
 let lastClicked: { element: HTMLElement; jobId: string; chunkId?: string } | null = null;
 let activeEl: HTMLElement | null = null;
 
-// The clicked chip is also saved to sessionStorage (position among all .cite
-// chips, plus its jobId/chunkId), so the same chip can be marked again when the
-// shell re-sends SOURCE_OPENED after the report reloads (e.g. a token refresh).
-// The key uses the pathname only: the token in the query string changes on reload.
+// The chip marked active (confirmed by SOURCE_OPENED, never on click alone) is
+// also saved to sessionStorage (position among all .cite chips, plus its
+// jobId/chunkId), so the same chip can be marked again when the shell re-sends
+// SOURCE_OPENED after the report reloads (e.g. a token refresh). The key uses
+// the pathname only: the token in the query string changes on reload.
 type SavedChip = { index: number; jobId: string; chunkId?: string };
 
 function savedChipKey(): string {
@@ -377,11 +378,9 @@ function chipMatches(el: HTMLElement, jobId: string, chunkId?: string): boolean 
   return elJob !== undefined && sameSource(elJob, el.dataset.chunkId, jobId, chunkId);
 }
 
-function saveClickedChip(element: HTMLElement | undefined, jobId: string, chunkId?: string): void {
+function saveActiveChip(element: HTMLElement, jobId: string, chunkId?: string): void {
   try {
-    const index = element
-      ? Array.prototype.indexOf.call(document.querySelectorAll(".cite"), element)
-      : -1;
+    const index = Array.prototype.indexOf.call(document.querySelectorAll(".cite"), element);
     if (index < 0) {
       window.sessionStorage.removeItem(savedChipKey());
       return;
@@ -425,14 +424,16 @@ function clearActiveChip(): void {
   activeEl = null;
 }
 
-function setActiveChip(el: HTMLElement): void {
+function setActiveChip(el: HTMLElement, jobId: string, chunkId?: string): void {
   el.classList.add("is-active");
   activeEl = el;
+  saveActiveChip(el, jobId, chunkId);
 }
 
 // Marks one chip for SOURCE_OPENED, in this order: the chip clicked in this page
 // load; else the saved chip, if the saved entry and the chip at its index both
 // still match the message; else the first chip in document order that matches.
+// Whichever chip is marked becomes the saved entry.
 function markSourceOpened(jobId: string, chunkId?: string): void {
   clearActiveChip();
   const clicked = lastClicked;
@@ -441,7 +442,7 @@ function markSourceOpened(jobId: string, chunkId?: string): void {
     clicked.element.isConnected &&
     sameSource(clicked.jobId, clicked.chunkId, jobId, chunkId)
   ) {
-    setActiveChip(clicked.element);
+    setActiveChip(clicked.element, jobId, chunkId);
     return;
   }
   const chips = Array.from(document.querySelectorAll<HTMLElement>(".cite"));
@@ -449,12 +450,12 @@ function markSourceOpened(jobId: string, chunkId?: string): void {
   if (saved && sameSource(saved.jobId, saved.chunkId, jobId, chunkId)) {
     const el = chips[saved.index];
     if (el && chipMatches(el, jobId, chunkId)) {
-      setActiveChip(el);
+      setActiveChip(el, jobId, chunkId);
       return;
     }
   }
   const first = chips.find((el) => chipMatches(el, jobId, chunkId));
-  if (first) setActiveChip(first);
+  if (first) setActiveChip(first, jobId, chunkId);
 }
 
 function scrollToSection(sectionId: string): void {
@@ -525,10 +526,9 @@ export function openSource(
     // Block numbers only mean something with a chunkId; never send \`blocks: []\`.
     ...(chunkId && blocks && blocks.length > 0 ? { blocks } : {}),
   };
-  // Remember which chip asked (in memory and in sessionStorage); it turns
-  // active only when the shell replies with a matching SOURCE_OPENED.
+  // Remember which chip asked (in memory only); it turns active, and is saved
+  // for reloads, only when the shell replies with a matching SOURCE_OPENED.
   lastClicked = element ? { element, jobId, chunkId } : null;
-  saveClickedChip(element, jobId, chunkId);
   // The parent enforces its own origin allowlist; "*" is acceptable here
   // because the payload contains no secrets.
   window.parent.postMessage(message, "*");
