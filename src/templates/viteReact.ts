@@ -360,12 +360,13 @@ let activeEl: HTMLElement | null = null;
 // The chip marked active (confirmed by SOURCE_OPENED, never on click alone) is
 // also saved to sessionStorage (position among all .cite chips, plus its
 // jobId/chunkId), so the same chip can be marked again when the shell re-sends
-// SOURCE_OPENED after the report reloads (e.g. a token refresh). The key uses
-// the pathname only: the token in the query string changes on reload.
+// SOURCE_OPENED after the report reloads (e.g. a token refresh). The viewers put
+// the access token in the path (/a/<token>/...), and it changes on reload, so
+// the key drops that segment.
 type SavedChip = { index: number; jobId: string; chunkId?: string };
 
 function savedChipKey(): string {
-  return "dillion-active-chip:" + window.location.pathname;
+  return "dillion-active-chip:" + location.pathname.replace(/\\/a\\/[^/]+\\//, "/a/");
 }
 
 // OPEN_SOURCE omits an empty chunkId, so treat "" and absent as equal.
@@ -430,11 +431,28 @@ function setActiveChip(el: HTMLElement, jobId: string, chunkId?: string): void {
   saveActiveChip(el, jobId, chunkId);
 }
 
+// A re-sent SOURCE_OPENED can arrive before the chips render, so when no chip is
+// marked, retry on animation frames for about a second (time-based, so a 120Hz
+// display doesn't halve it). A newer SOURCE_OPENED or SOURCE_CLOSED cancels it.
+const MARK_RETRY_MS = 1000;
+let markRetry: number | null = null;
+
+function cancelMarkRetry(): void {
+  if (markRetry !== null) cancelAnimationFrame(markRetry);
+  markRetry = null;
+}
+
+function markSourceOpened(jobId: string, chunkId?: string, deadline = performance.now() + MARK_RETRY_MS): void {
+  cancelMarkRetry();
+  if (markMatchingChip(jobId, chunkId) || performance.now() >= deadline) return;
+  markRetry = requestAnimationFrame(() => markSourceOpened(jobId, chunkId, deadline));
+}
+
 // Marks one chip for SOURCE_OPENED, in this order: the chip clicked in this page
 // load; else the saved chip, if the saved entry and the chip at its index both
 // still match the message; else the first chip in document order that matches.
-// Whichever chip is marked becomes the saved entry.
-function markSourceOpened(jobId: string, chunkId?: string): void {
+// Whichever chip is marked becomes the saved entry. Returns false if none matched.
+function markMatchingChip(jobId: string, chunkId?: string): boolean {
   clearActiveChip();
   const clicked = lastClicked;
   if (
@@ -443,7 +461,7 @@ function markSourceOpened(jobId: string, chunkId?: string): void {
     sameSource(clicked.jobId, clicked.chunkId, jobId, chunkId)
   ) {
     setActiveChip(clicked.element, jobId, chunkId);
-    return;
+    return true;
   }
   const chips = Array.from(document.querySelectorAll<HTMLElement>(".cite"));
   const saved = readSavedChip();
@@ -451,11 +469,13 @@ function markSourceOpened(jobId: string, chunkId?: string): void {
     const el = chips[saved.index];
     if (el && chipMatches(el, jobId, chunkId)) {
       setActiveChip(el, jobId, chunkId);
-      return;
+      return true;
     }
   }
   const first = chips.find((el) => chipMatches(el, jobId, chunkId));
-  if (first) setActiveChip(first, jobId, chunkId);
+  if (!first) return false;
+  setActiveChip(first, jobId, chunkId);
+  return true;
 }
 
 function scrollToSection(sectionId: string): void {
@@ -486,6 +506,7 @@ function installBridgeListener(): void {
       markSourceOpened(data.jobId, data.chunkId);
     }
     if (data.type === "SOURCE_CLOSED") {
+      cancelMarkRetry();
       clearActiveChip();
       forgetSavedChip();
     }
