@@ -357,24 +357,104 @@ let bridgeListenerInstalled = false;
 let lastClicked: { element: HTMLElement; jobId: string; chunkId?: string } | null = null;
 let activeEl: HTMLElement | null = null;
 
+// The clicked chip is also saved to sessionStorage (position among all .cite
+// chips, plus its jobId/chunkId), so the same chip can be marked again when the
+// shell re-sends SOURCE_OPENED after the report reloads (e.g. a token refresh).
+// The key uses the pathname only: the token in the query string changes on reload.
+type SavedChip = { index: number; jobId: string; chunkId?: string };
+
+function savedChipKey(): string {
+  return "dillion-active-chip:" + window.location.pathname;
+}
+
+// OPEN_SOURCE omits an empty chunkId, so treat "" and absent as equal.
+function sameSource(aJob: string, aChunk: string | undefined, bJob: string, bChunk: string | undefined): boolean {
+  return aJob === bJob && (aChunk || undefined) === (bChunk || undefined);
+}
+
+function chipMatches(el: HTMLElement, jobId: string, chunkId?: string): boolean {
+  const elJob = el.dataset.jobId;
+  return elJob !== undefined && sameSource(elJob, el.dataset.chunkId, jobId, chunkId);
+}
+
+function saveClickedChip(element: HTMLElement | undefined, jobId: string, chunkId?: string): void {
+  try {
+    const index = element
+      ? Array.prototype.indexOf.call(document.querySelectorAll(".cite"), element)
+      : -1;
+    if (index < 0) {
+      window.sessionStorage.removeItem(savedChipKey());
+      return;
+    }
+    const saved: SavedChip = { index, jobId, ...(chunkId ? { chunkId } : {}) };
+    window.sessionStorage.setItem(savedChipKey(), JSON.stringify(saved));
+  } catch {
+    // Storage blocked: after a reload, the first matching chip is marked instead.
+  }
+}
+
+function readSavedChip(): SavedChip | null {
+  try {
+    const raw = window.sessionStorage.getItem(savedChipKey());
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Partial<SavedChip> | null;
+    if (
+      !saved ||
+      typeof saved.index !== "number" ||
+      typeof saved.jobId !== "string" ||
+      (saved.chunkId !== undefined && typeof saved.chunkId !== "string")
+    ) {
+      return null;
+    }
+    return { index: saved.index, jobId: saved.jobId, chunkId: saved.chunkId };
+  } catch {
+    return null;
+  }
+}
+
+function forgetSavedChip(): void {
+  try {
+    window.sessionStorage.removeItem(savedChipKey());
+  } catch {
+    // Storage blocked: nothing was saved.
+  }
+}
+
 function clearActiveChip(): void {
   if (activeEl) activeEl.classList.remove("is-active");
   activeEl = null;
 }
 
+function setActiveChip(el: HTMLElement): void {
+  el.classList.add("is-active");
+  activeEl = el;
+}
+
+// Marks one chip for SOURCE_OPENED, in this order: the chip clicked in this page
+// load; else the saved chip, if the saved entry and the chip at its index both
+// still match the message; else the first chip in document order that matches.
 function markSourceOpened(jobId: string, chunkId?: string): void {
   clearActiveChip();
   const clicked = lastClicked;
   if (
     clicked &&
     clicked.element.isConnected &&
-    clicked.jobId === jobId &&
-    // OPEN_SOURCE omits an empty chunkId, so treat "" and absent as equal.
-    (clicked.chunkId || undefined) === (chunkId || undefined)
+    sameSource(clicked.jobId, clicked.chunkId, jobId, chunkId)
   ) {
-    clicked.element.classList.add("is-active");
-    activeEl = clicked.element;
+    setActiveChip(clicked.element);
+    return;
   }
+  const chips = Array.from(document.querySelectorAll<HTMLElement>(".cite"));
+  const saved = readSavedChip();
+  if (saved && sameSource(saved.jobId, saved.chunkId, jobId, chunkId)) {
+    const el = chips[saved.index];
+    if (el && chipMatches(el, jobId, chunkId)) {
+      setActiveChip(el);
+      return;
+    }
+  }
+  const first = chips.find((el) => chipMatches(el, jobId, chunkId));
+  if (first) setActiveChip(first);
 }
 
 function scrollToSection(sectionId: string): void {
@@ -406,6 +486,7 @@ function installBridgeListener(): void {
     }
     if (data.type === "SOURCE_CLOSED") {
       clearActiveChip();
+      forgetSavedChip();
     }
   });
 }
@@ -444,9 +525,10 @@ export function openSource(
     // Block numbers only mean something with a chunkId; never send \`blocks: []\`.
     ...(chunkId && blocks && blocks.length > 0 ? { blocks } : {}),
   };
-  // Remember which chip asked; it turns active only when the shell replies
-  // with a matching SOURCE_OPENED.
+  // Remember which chip asked (in memory and in sessionStorage); it turns
+  // active only when the shell replies with a matching SOURCE_OPENED.
   lastClicked = element ? { element, jobId, chunkId } : null;
+  saveClickedChip(element, jobId, chunkId);
   // The parent enforces its own origin allowlist; "*" is acceptable here
   // because the payload contains no secrets.
   window.parent.postMessage(message, "*");
