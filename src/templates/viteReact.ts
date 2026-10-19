@@ -194,7 +194,7 @@ html, body {
 /* The chip whose source is open in the VDR card (set by the bridge listener). */
 .cite.is-active,
 .cite.is-active:hover {
-  background: #8624c6;
+  background: #005BAE;
   color: #fff;
 }
 
