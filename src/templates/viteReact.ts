@@ -172,21 +172,48 @@ html, body {
 .cite {
   display: inline-flex;
   align-items: center;
+  height: 22px;
   margin: 0 2px;
-  padding: 1px 6px;
-  font-size: 0.78em;
-  border-radius: 4px;
+  padding: 0 9px;
+  font-size: 12px;
+  border-radius: 999px;
   background: rgba(27, 79, 114, 0.08);
   color: var(--color-fdd-primary);
   cursor: pointer;
-  vertical-align: text-top;
-  line-height: 1.4;
+  vertical-align: 1px;
+  line-height: 14px;
+  white-space: nowrap;
   font-weight: 500;
   transition: background 120ms ease;
 }
 
 .cite:hover {
   background: rgba(27, 79, 114, 0.18);
+}
+
+/* The chip whose source is open in the VDR card (set by the bridge listener). */
+.cite.is-active,
+.cite.is-active:hover {
+  background: #005BAE;
+  color: #fff;
+}
+
+/*
+ * On screen, a long chip is cut off with an ellipsis instead of sticking out of
+ * its container (the full label is in the chip's title). Print keeps the full
+ * label. The 4px allows for the chip's 2px side margins.
+ */
+@media screen {
+  .cite {
+    max-width: calc(100% - 4px);
+  }
+
+  .cite-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .dillion-section-highlight {
@@ -317,10 +344,139 @@ export type DillionMessage =
   | { source: "dillion-artifact"; v: 1; type: "READY" }
   | { source: "dillion-artifact"; v: 1; type: "SCROLL_TO_SECTION"; sectionId: string }
   | { source: "dillion-artifact"; v: 1; type: "HIGHLIGHT_SECTION"; sectionId: string }
-  | { source: "dillion-artifact"; v: 1; type: "CLEAR_HIGHLIGHT" };
+  | { source: "dillion-artifact"; v: 1; type: "CLEAR_HIGHLIGHT" }
+  | { source: "dillion-artifact"; v: 1; type: "SOURCE_OPENED"; jobId: string; chunkId?: string }
+  | { source: "dillion-artifact"; v: 1; type: "SOURCE_CLOSED" };
 
 let warnedOnce = false;
 let bridgeListenerInstalled = false;
+
+// The chip that last fired OPEN_SOURCE (null when the click passed no element),
+// and the chip currently marked active. The shell confirms with SOURCE_OPENED /
+// SOURCE_CLOSED; clicks alone never change chip classes.
+let lastClicked: { element: HTMLElement; jobId: string; chunkId?: string } | null = null;
+let activeEl: HTMLElement | null = null;
+
+// The chip marked active (confirmed by SOURCE_OPENED, never on click alone) is
+// also saved to sessionStorage (position among all .cite chips, plus its
+// jobId/chunkId), so the same chip can be marked again when the shell re-sends
+// SOURCE_OPENED after the report reloads (e.g. a token refresh). The viewers put
+// the access token in the path (/a/<token>/...), and it changes on reload, so
+// the key drops that segment.
+type SavedChip = { index: number; jobId: string; chunkId?: string };
+
+function savedChipKey(): string {
+  return "dillion-active-chip:" + location.pathname.replace(/\\/a\\/[^/]+\\//, "/a/");
+}
+
+// OPEN_SOURCE omits an empty chunkId, so treat "" and absent as equal.
+function sameSource(aJob: string, aChunk: string | undefined, bJob: string, bChunk: string | undefined): boolean {
+  return aJob === bJob && (aChunk || undefined) === (bChunk || undefined);
+}
+
+function chipMatches(el: HTMLElement, jobId: string, chunkId?: string): boolean {
+  const elJob = el.dataset.jobId;
+  return elJob !== undefined && sameSource(elJob, el.dataset.chunkId, jobId, chunkId);
+}
+
+function saveActiveChip(element: HTMLElement, jobId: string, chunkId?: string): void {
+  try {
+    const index = Array.prototype.indexOf.call(document.querySelectorAll(".cite"), element);
+    if (index < 0) {
+      window.sessionStorage.removeItem(savedChipKey());
+      return;
+    }
+    const saved: SavedChip = { index, jobId, ...(chunkId ? { chunkId } : {}) };
+    window.sessionStorage.setItem(savedChipKey(), JSON.stringify(saved));
+  } catch {
+    // Storage blocked: after a reload, the first matching chip is marked instead.
+  }
+}
+
+function readSavedChip(): SavedChip | null {
+  try {
+    const raw = window.sessionStorage.getItem(savedChipKey());
+    if (!raw) return null;
+    const saved = JSON.parse(raw) as Partial<SavedChip> | null;
+    if (
+      !saved ||
+      typeof saved.index !== "number" ||
+      typeof saved.jobId !== "string" ||
+      (saved.chunkId !== undefined && typeof saved.chunkId !== "string")
+    ) {
+      return null;
+    }
+    return { index: saved.index, jobId: saved.jobId, chunkId: saved.chunkId };
+  } catch {
+    return null;
+  }
+}
+
+function forgetSavedChip(): void {
+  try {
+    window.sessionStorage.removeItem(savedChipKey());
+  } catch {
+    // Storage blocked: nothing was saved.
+  }
+}
+
+function clearActiveChip(): void {
+  if (activeEl) activeEl.classList.remove("is-active");
+  activeEl = null;
+}
+
+function setActiveChip(el: HTMLElement, jobId: string, chunkId?: string): void {
+  el.classList.add("is-active");
+  activeEl = el;
+  saveActiveChip(el, jobId, chunkId);
+}
+
+// A re-sent SOURCE_OPENED can arrive before the chips render, so when no chip is
+// marked, retry on animation frames for about a second (time-based, so a 120Hz
+// display doesn't halve it). A newer SOURCE_OPENED or SOURCE_CLOSED cancels it.
+const MARK_RETRY_MS = 1000;
+let markRetry: number | null = null;
+
+function cancelMarkRetry(): void {
+  if (markRetry !== null) cancelAnimationFrame(markRetry);
+  markRetry = null;
+}
+
+function markSourceOpened(jobId: string, chunkId?: string, deadline = performance.now() + MARK_RETRY_MS): void {
+  cancelMarkRetry();
+  if (markMatchingChip(jobId, chunkId) || performance.now() >= deadline) return;
+  markRetry = requestAnimationFrame(() => markSourceOpened(jobId, chunkId, deadline));
+}
+
+// Marks one chip for SOURCE_OPENED, in this order: the chip clicked in this page
+// load; else the saved chip, if the saved entry and the chip at its index both
+// still match the message; else the first chip in document order that matches.
+// Whichever chip is marked becomes the saved entry. Returns false if none matched.
+function markMatchingChip(jobId: string, chunkId?: string): boolean {
+  clearActiveChip();
+  const clicked = lastClicked;
+  if (
+    clicked &&
+    clicked.element.isConnected &&
+    sameSource(clicked.jobId, clicked.chunkId, jobId, chunkId)
+  ) {
+    setActiveChip(clicked.element, jobId, chunkId);
+    return true;
+  }
+  const chips = Array.from(document.querySelectorAll<HTMLElement>(".cite"));
+  const saved = readSavedChip();
+  if (saved && sameSource(saved.jobId, saved.chunkId, jobId, chunkId)) {
+    const el = chips[saved.index];
+    if (el && chipMatches(el, jobId, chunkId)) {
+      setActiveChip(el, jobId, chunkId);
+      return true;
+    }
+  }
+  const first = chips.find((el) => chipMatches(el, jobId, chunkId));
+  if (!first) return false;
+  setActiveChip(first, jobId, chunkId);
+  return true;
+}
 
 function scrollToSection(sectionId: string): void {
   const el = document.getElementById(sectionId);
@@ -346,6 +502,14 @@ function installBridgeListener(): void {
         el.classList.remove("dillion-section-highlight");
       });
     }
+    if (data.type === "SOURCE_OPENED") {
+      markSourceOpened(data.jobId, data.chunkId);
+    }
+    if (data.type === "SOURCE_CLOSED") {
+      cancelMarkRetry();
+      clearActiveChip();
+      forgetSavedChip();
+    }
   });
 }
 
@@ -362,6 +526,7 @@ export function openSource(
   chunkId?: string,
   label?: string,
   blocks?: number[],
+  element?: HTMLElement,
 ): void {
   if (!inFrame()) {
     if (!warnedOnce) {
@@ -382,6 +547,9 @@ export function openSource(
     // Block numbers only mean something with a chunkId; never send \`blocks: []\`.
     ...(chunkId && blocks && blocks.length > 0 ? { blocks } : {}),
   };
+  // Remember which chip asked (in memory only); it turns active, and is saved
+  // for reloads, only when the shell replies with a matching SOURCE_OPENED.
+  lastClicked = element ? { element, jobId, chunkId } : null;
   // The parent enforces its own origin allowlist; "*" is acceptable here
   // because the payload contains no secrets.
   window.parent.postMessage(message, "*");
@@ -429,11 +597,14 @@ export function Cite({
   }, []);
 
   const text = children ?? label ?? "src";
-  const hoverTitle =
-    title ??
-    (embedded
-      ? "Open source document"
-      : "Citation (preview only — open inside Dillion to view source)");
+  // Plain-text label, so the default tooltip can show it in full when the chip
+  // is cut off with an ellipsis on screen.
+  const labelText =
+    typeof text === "string" || typeof text === "number" ? String(text) : undefined;
+  const hint = embedded
+    ? "Open source document"
+    : "Citation (preview only — open inside Dillion to view source)";
+  const hoverTitle = title ?? (labelText ? labelText + " — " + hint : hint);
   return (
     <button
       type="button"
@@ -441,10 +612,10 @@ export function Cite({
       data-job-id={jobId}
       {...(chunkId ? { "data-chunk-id": chunkId } : {})}
       {...(chunkId && blocks && blocks.length > 0 ? { "data-blocks": blocks.join(",") } : {})}
-      onClick={() => openSource(jobId, chunkId, label?.toString(), blocks)}
+      onClick={(e) => openSource(jobId, chunkId, label?.toString(), blocks, e.currentTarget)}
       title={hoverTitle}
     >
-      {text}
+      <span className="cite-label">{text}</span>
     </button>
   );
 }
