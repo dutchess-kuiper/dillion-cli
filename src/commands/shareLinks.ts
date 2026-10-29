@@ -95,7 +95,7 @@ function parsePinnedVersion(version: string, index: number): number {
   return parseInt(version, 10);
 }
 
-function applyPasswordFlag(
+export function applyPasswordFlag(
   body: Record<string, unknown>,
   password: unknown,
 ): void {
@@ -106,6 +106,12 @@ function applyPasswordFlag(
     process.exit(1);
   }
   body.password = pw;
+}
+
+export function rejectRemovePasswordFlag(flags: Record<string, unknown>): void {
+  if (flags["remove-password"] === undefined) return;
+  console.error("--remove-password is no longer supported: share links must keep a password (set a new one with --password)");
+  process.exit(1);
 }
 
 function applyExpiresDaysFlag(
@@ -333,6 +339,7 @@ async function shareLinksUpdate(args: string[]) {
     console.error("Cannot combine --clear-emails and --emails");
     process.exit(1);
   }
+  rejectRemovePasswordFlag(flags);
 
   const body: Record<string, unknown> = {};
   if (flags.title) body.title = String(flags.title);

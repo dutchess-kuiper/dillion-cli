@@ -4,6 +4,7 @@ import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
 import { parseFlags } from "../flags";
 import { requireProjectId } from "../projectContext";
+import { applyPasswordFlag, rejectRemovePasswordFlag } from "./shareLinks";
 import { VITE_REACT_TEMPLATE } from "../templates/viteReact";
 import { buildZip, walkDirToZipInputs } from "../zip";
 
@@ -787,8 +788,9 @@ function buildShareUpdateBody(
       process.exit(1);
     }
   }
+  rejectRemovePasswordFlag(flags);
   const body: Record<string, unknown> = {};
-  if (flags.password) body.password = flags.password;
+  applyPasswordFlag(body, flags.password);
   if (flags["expires-days"]) {
     body.expires_in_days = parseInt(String(flags["expires-days"]), 10);
   }
@@ -836,7 +838,7 @@ async function artifactsShareCreate(args: string[]) {
     );
     process.exit(1);
   }
-  if (!flags.password) {
+  if (flags.password === undefined) {
     console.error("--password <pw> is required (8+ chars): share links must be password-protected");
     process.exit(1);
   }
