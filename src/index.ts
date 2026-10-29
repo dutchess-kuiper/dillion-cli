@@ -127,9 +127,9 @@ Commands:
   artifacts download-raw <id>  Download source zip (--out path, optional --version)
   artifacts list -p <pid>      List research reports for a project
   artifacts get <report-id>    Show report + versions
-  artifacts share <report-id>  Create link (or: share list / share update, see artifacts help)
+  artifacts share <report-id>  Create password-protected link (--password required; or: share list / share update, see artifacts help)
 
-  share-links create -p <pid>  Create multi-artifact share link (see share-links --help)
+  share-links create -p <pid>  Create password-protected multi-artifact share link (--password required; see share-links --help)
   share-links list -p <pid>    List share links for a project
   share-links get <link-id>    Show a share link with items
   share-links update <link-id> Change slug, password, expiry, email allowlist, items
