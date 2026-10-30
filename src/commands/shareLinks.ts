@@ -101,6 +101,11 @@ export function applyPasswordFlag(
 ): void {
   if (password === undefined) return;
   const pw = String(password);
+  // parseFlags reads a value starting with "-" as a missing value.
+  if (pw === "") {
+    console.error("--password needs a value (if it starts with \"-\", use --password=<pw>)");
+    process.exit(1);
+  }
   if (pw.length < SHARE_LINK_PASSWORD_MIN_LEN) {
     console.error("--password must be at least 8 characters");
     process.exit(1);
