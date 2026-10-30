@@ -4,6 +4,7 @@ import { spawn } from "bun";
 import { api, apiDownloadToFile, apiUploadMultipart } from "../api";
 import { parseFlags } from "../flags";
 import { requireProjectId } from "../projectContext";
+import { applyPasswordFlag, rejectRemovePasswordFlag } from "./shareLinks";
 import { VITE_REACT_TEMPLATE } from "../templates/viteReact";
 import { buildZip, walkDirToZipInputs } from "../zip";
 
@@ -40,15 +41,15 @@ Discovery:
   get <report-id>               Show a report and its versions
 
 Sharing:
-  share <report-id> [--password <pw>] [--expires-days N] [--no-citations]
-                                Create a share link (source preview on by default; use --no-citations to disable)
+  share <report-id> --password <pw> [--expires-days N] [--no-citations]
+                                Create a password-protected share link (password required, 8+ chars;
+                                source preview on by default; use --no-citations to disable)
   share list <report-id>        List share links (active + revoked) for a report
   share update <report-id> <share-id> [options]
                                 Change password, expiry, pin, or citation preview (see --help on each)
 
 Common flags (share create/update):
-  --password <pw>            Set or change password (8+ chars)
-  --remove-password         Remove password (open link)
+  --password <pw>            Set (required on create) or change password (8+ chars)
   --expires-days <N>        Set expiry to N days from now (1–365)
   --no-expiry               Remove expiry
   --version <N>             Pin to report version; combine with --latest to unpin
@@ -726,7 +727,7 @@ async function artifactsShare(args: string[]) {
     if (!reportId || !shareId) {
       console.error(
         "Usage: dillion artifacts share update <report-id> <share-id> [options]\n" +
-          "  Options: --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations, --json",
+          "  Options: --password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations, --json",
       );
       process.exit(1);
     }
@@ -767,7 +768,6 @@ function buildShareUpdateBody(
     console.error("Cannot use both --allow-citations and --no-citations");
     process.exit(1);
   }
-  const removePassword = flags["remove-password"] !== undefined;
   const noExpiry = flags["no-expiry"] !== undefined;
   const latest = flags.latest !== undefined;
   if (noExpiry && flags["expires-days"]) {
@@ -779,8 +779,8 @@ function buildShareUpdateBody(
     process.exit(1);
   }
   if (forCreate) {
-    if (removePassword || noExpiry) {
-      console.error("--remove-password and --no-expiry are only for: dillion artifacts share update …");
+    if (noExpiry) {
+      console.error("--no-expiry is only for: dillion artifacts share update …");
       process.exit(1);
     }
     if (latest) {
@@ -788,9 +788,9 @@ function buildShareUpdateBody(
       process.exit(1);
     }
   }
+  rejectRemovePasswordFlag(flags);
   const body: Record<string, unknown> = {};
-  if (flags.password) body.password = flags.password;
-  if (removePassword) body.remove_password = true;
+  applyPasswordFlag(body, flags.password);
   if (flags["expires-days"]) {
     body.expires_in_days = parseInt(String(flags["expires-days"]), 10);
   }
@@ -809,7 +809,7 @@ async function artifactsShareUpdate(
 ) {
   const body = buildShareUpdateBody(flags, false);
   if (Object.keys(body).length === 0) {
-    console.error("No changes: pass at least one of --password, --remove-password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations");
+    console.error("No changes: pass at least one of --password, --expires-days, --no-expiry, --version, --latest, --no-citations, --allow-citations");
     process.exit(1);
   }
   const s = await api(
@@ -832,10 +832,14 @@ async function artifactsShareCreate(args: string[]) {
   const reportId = positional[0];
   if (!reportId) {
     console.error(
-      "Usage: dillion artifacts share <report-id> [--password <pw>] [--expires-days N] [--no-citations] ...\n" +
+      "Usage: dillion artifacts share <report-id> --password <pw> [--expires-days N] [--no-citations] ...\n" +
         "     dillion artifacts share list <report-id>\n" +
         "     dillion artifacts share update <report-id> <share-id> [options]",
     );
+    process.exit(1);
+  }
+  if (flags.password === undefined) {
+    console.error("--password <pw> is required (8+ chars): share links must be password-protected");
     process.exit(1);
   }
   const body = buildShareUpdateBody(flags, true);

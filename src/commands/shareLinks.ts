@@ -6,7 +6,7 @@ const SHARE_LINKS_HELP = `
 Usage: dillion share-links <command> [options]
 
 Commands:
-  create -p <pid> --title <t> --reports <id1,id2,...>
+  create -p <pid> --title <t> --reports <id1,id2,...> --password <pw>
                                 Create a multi-artifact share link
     [--slug <slug>]             Custom slug (defaults to slugified title)
     [--description <text>]      One-line context shown above the tabs
@@ -15,7 +15,7 @@ Commands:
                                 empty entry = use report title)
     [--versions "1||3"]         Pinned versions per report (| separated; empty
                                 entry = always latest)
-    [--password <pw>]           Set password (8+ chars)
+    --password <pw>             Password (required, 8+ chars)
     [--expires-days <N>]        Expire N days from now (1-365)
     [--no-citations]            Disable source-document preview (default: on)
     [--domains a.com,b.co]      Restrict to allowed email domains
@@ -29,7 +29,6 @@ Commands:
     [--description <text>]      Update description
     [--slug <slug>]             Change URL slug
     [--password <pw>]           New password (8+ chars)
-    [--remove-password]         Remove password
     [--expires-days <N>]        New expiry
     [--no-expiry]               Remove expiry
     [--no-citations / --allow-citations]
@@ -96,17 +95,28 @@ function parsePinnedVersion(version: string, index: number): number {
   return parseInt(version, 10);
 }
 
-function applyPasswordFlag(
+export function applyPasswordFlag(
   body: Record<string, unknown>,
   password: unknown,
 ): void {
   if (password === undefined) return;
   const pw = String(password);
+  // parseFlags reads a value starting with "-" as a missing value.
+  if (pw === "") {
+    console.error("--password needs a value (if it starts with \"-\", use --password=<pw>)");
+    process.exit(1);
+  }
   if (pw.length < SHARE_LINK_PASSWORD_MIN_LEN) {
     console.error("--password must be at least 8 characters");
     process.exit(1);
   }
   body.password = pw;
+}
+
+export function rejectRemovePasswordFlag(flags: Record<string, unknown>): void {
+  if (flags["remove-password"] === undefined) return;
+  console.error("--remove-password is no longer supported: share links must keep a password (set a new one with --password)");
+  process.exit(1);
 }
 
 function applyExpiresDaysFlag(
@@ -165,7 +175,7 @@ async function shareLinksCreate(args: string[]) {
   const { flags } = parseFlags(args);
   const projectId = await requireProjectId(
     flags,
-    "Usage: dillion share-links create --project <id> --title <t> --reports <id1,id2,...>",
+    "Usage: dillion share-links create --project <id> --title <t> --reports <id1,id2,...> --password <pw>",
   );
   if (!flags.title) {
     console.error("--title is required");
@@ -176,6 +186,10 @@ async function shareLinksCreate(args: string[]) {
   );
   if (reports.length === 0) {
     console.error("--reports <id1,id2,...> is required (at least one report)");
+    process.exit(1);
+  }
+  if (flags.password === undefined) {
+    console.error("--password <pw> is required (8+ chars): share links must be password-protected");
     process.exit(1);
   }
   const body: Record<string, unknown> = {
@@ -302,7 +316,7 @@ async function shareLinksUpdate(args: string[]) {
   if (!linkId) {
     console.error(
       "Usage: dillion share-links update <link-id> [options]\n" +
-        "  Options: --title, --description, --slug, --password, --remove-password, --expires-days,\n" +
+        "  Options: --title, --description, --slug, --password, --expires-days,\n" +
         "           --no-expiry, --no-citations, --allow-citations, --domains, --clear-domains,\n" +
         "           --emails, --clear-emails, --reports",
     );
@@ -313,11 +327,6 @@ async function shareLinksUpdate(args: string[]) {
   const allowCitations = flags["allow-citations"] !== undefined;
   if (noCitations && allowCitations) {
     console.error("Cannot combine --no-citations and --allow-citations");
-    process.exit(1);
-  }
-  const removePassword = flags["remove-password"] !== undefined;
-  if (removePassword && flags.password) {
-    console.error("Cannot combine --password and --remove-password");
     process.exit(1);
   }
   const noExpiry = flags["no-expiry"] !== undefined;
@@ -335,13 +344,13 @@ async function shareLinksUpdate(args: string[]) {
     console.error("Cannot combine --clear-emails and --emails");
     process.exit(1);
   }
+  rejectRemovePasswordFlag(flags);
 
   const body: Record<string, unknown> = {};
   if (flags.title) body.title = String(flags.title);
   if (flags.description) body.description = String(flags.description);
   if (flags.slug) body.slug = String(flags.slug);
   applyPasswordFlag(body, flags.password);
-  if (removePassword) body.remove_password = true;
   applyExpiresDaysFlag(body, flags["expires-days"]);
   if (noExpiry) body.clear_expiry = true;
   if (noCitations) body.allow_citation_excerpts = false;
