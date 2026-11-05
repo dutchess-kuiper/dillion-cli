@@ -65,7 +65,10 @@ Create a project:
 ```sh
 dillion projects create "Q4 diligence"
 dillion projects create my-project -d "Optional description"
+dillion projects create "Private deal" --access none
 ```
+
+`--access` sets the project's General access, what everyone in the workspace gets without being added: `none` (only people added to the project), `view` (everyone can read it) or `edit` (everyone can upload, run Auto DD and share). Leaving it out gives `edit`, the same default as the web app.
 
 Share the VDR data room (project access — not artifact share links):
 
@@ -336,6 +339,7 @@ dillion help         # Show help
 | `--project` | `-p` | Project ID |
 | `--org-id` | | Act in this organization for one command (overrides `org use`) |
 | `--description` | `-d` | Project description (`projects create`) |
+| `--access` | | General access: `none`, `view` or `edit` (`projects create`) |
 | `--name` | | Filter projects by name substring (`projects list`) |
 | `--json` | | Output raw JSON |
 | `--limit` | | Result limit |
