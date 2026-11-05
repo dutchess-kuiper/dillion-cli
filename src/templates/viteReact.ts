@@ -699,7 +699,7 @@ Each publish also uploads a **source zip** of this directory (excluding \`node_m
 dillion artifacts download-raw <report-id> --out ./report-source.zip
 \`\`\`
 
-To create a share link (optional password; source document preview is on by default, add \`--no-citations\` to disable):
+To create a share link (password required, 8+ chars; source document preview is on by default, add \`--no-citations\` to disable):
 
 \`\`\`sh
 dillion artifacts share <report-id> --password '<strong>'
