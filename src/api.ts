@@ -207,11 +207,19 @@ export async function apiProjectsList(nameFilter?: string): Promise<unknown> {
 /** POST bastion `/projects` — `description` omitted unless provided. */
 export async function apiProjectsCreate(
   name: string,
-  description?: string | null
+  description?: string | null,
+  orgAccess?: "none" | "viewer" | "editor"
 ): Promise<unknown> {
-  const body: { name: string; description?: string | null } = { name };
+  const body: {
+    name: string;
+    description?: string | null;
+    org_access?: "none" | "viewer" | "editor";
+  } = { name };
   if (description !== undefined) {
     body.description = description;
+  }
+  if (orgAccess !== undefined) {
+    body.org_access = orgAccess;
   }
   return api("/projects", { method: "POST", body });
 }

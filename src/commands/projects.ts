@@ -26,9 +26,64 @@ Usage: dillion projects create <name> [options]
 
 Options:
   --description, -d <text>   Optional description
+  --access <level>           General access for everyone in the workspace:
+                               none  only people added to the project
+                               view  everyone can open and read it
+                               edit  everyone can upload, run Auto DD and share
+                             Default: edit (same as the web app)
   --json                     Output raw JSON
   --help, -h                 Show this help
 `.trim();
+
+export type OrgAccessLevel = "none" | "viewer" | "editor";
+
+const ACCESS_FLAG_VALUES: Record<string, OrgAccessLevel> = {
+  none: "none",
+  view: "viewer",
+  viewer: "viewer",
+  edit: "editor",
+  editor: "editor",
+};
+
+const ACCESS_LABELS: Record<string, string> = {
+  none: "No access",
+  viewer: "Can view",
+  editor: "Can edit",
+};
+
+/**
+ * Parse `--access`. undefined means the flag was not given (the backend
+ * default applies). Returns an error for an empty or unknown value.
+ */
+export function parseAccessFlag(
+  raw: string | undefined,
+): { level?: OrgAccessLevel } | { error: string } {
+  if (raw === undefined) return {};
+  const level = ACCESS_FLAG_VALUES[raw.trim().toLowerCase()];
+  if (!level) {
+    return { error: "--access must be one of: none, view, edit" };
+  }
+  return { level };
+}
+
+/**
+ * Warning text when --access was given but the created project came back
+ * with different General access (an older server that ignores the field).
+ * Returns undefined when nothing was requested or the values match.
+ */
+export function accessMismatchWarning(
+  requested: OrgAccessLevel | undefined,
+  returned: unknown,
+): string | undefined {
+  if (!requested || returned === requested) return undefined;
+  const got = accessLabel(returned) ?? "unknown";
+  return `Warning: asked for general access "${accessLabel(requested)}" but the project was created with "${got}". The server may not support --access yet; change it in the web app.`;
+}
+
+/** Human label for a project's org_access, e.g. "Can edit". */
+export function accessLabel(orgAccess: unknown): string | undefined {
+  return typeof orgAccess === "string" ? ACCESS_LABELS[orgAccess] : undefined;
+}
 
 const PROJECTS_MEMBERS_HELP = `
 Usage: dillion projects members [options]
@@ -128,16 +183,27 @@ export async function projectsCreateCommand(args: string[]) {
     process.exit(1);
   }
 
-  const data = await apiProjectsCreate(name, description);
+  const access = parseAccessFlag(flags.access);
+  if ("error" in access) {
+    console.error(access.error);
+    process.exit(1);
+  }
+
+  const data = await apiProjectsCreate(name, description, access.level);
+  const p = data as Record<string, unknown>;
+
+  const mismatch = accessMismatchWarning(access.level, p.org_access);
+  if (mismatch) console.error(mismatch);
 
   if (json) {
     console.log(JSON.stringify(data, null, 2));
     return;
   }
 
-  const p = data as Record<string, unknown>;
   console.log(`Created: ${p.name ?? name}`);
   console.log(`  id: ${p.id ?? ""}`);
+  const label = accessLabel(p.org_access);
+  if (label) console.log(`  general access: ${label}`);
 }
 
 export async function projectsMembersCommand(args: string[]) {
