@@ -1,6 +1,6 @@
 import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError } from "../api";
+import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError, fetchOrExit } from "../api";
 import { getConfig } from "../config";
 import { waitForJobCompletion } from "../jobWait";
 import { requireProjectId, resolveProjectId } from "../projectContext";
@@ -289,7 +289,7 @@ async function fetchTextJob(options: {
   const url = new URL(`${baseUrl}/files/text/${options.jobId}`);
   if (options.projectId) url.searchParams.set("projectId", options.projectId);
 
-  const res = await fetch(url, {
+  const res = await fetchOrExit(url, {
     headers: buildHeaders(apiKey, { Accept: "application/json" }),
   });
 

@@ -1,6 +1,6 @@
 import { dirname } from "path";
 import { mkdir } from "fs/promises";
-import { apiBaseUrl, buildHeaders } from "../api";
+import { apiBaseUrl, buildHeaders, describeNetworkError } from "../api";
 import { getConfig } from "../config";
 import { parseFlags } from "../flags";
 
@@ -52,8 +52,8 @@ async function fetchSkill(): Promise<string> {
       headers: buildHeaders(apiKey),
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
-    console.error(`Couldn't reach ${baseUrl}. Check your connection, or run: dillion health`);
+  } catch (err) {
+    console.error(describeNetworkError(err, baseUrl));
     process.exit(1);
   }
   const text = await res.text();

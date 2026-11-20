@@ -414,6 +414,10 @@ All commands support `--json` for raw JSON output, useful for piping:
 dillion jobs list -p <project-id> --json | jq '.jobs[].fileName'
 ```
 
+## Errors
+
+When the server can't be reached (connection refused, unknown host, timeout, bad server URL) the CLI says which, in one line, and exits 1. Any other unexpected error is also one line; set `DILLION_DEBUG=1` to see the full stack trace.
+
 ## Update
 
 ```sh
