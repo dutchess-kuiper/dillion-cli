@@ -68,6 +68,7 @@ OTHER
   dillion update                          Update to latest version
   dillion version                         Show version
   dillion docs                            Show this reference
+  dillion skill                           Print the dillion-cli agent skill (--out <path> to save)
   dillion help                            Show quick help
 
 FLAGS
