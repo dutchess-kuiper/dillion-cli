@@ -13,7 +13,7 @@ import {
 import { parseFlags } from "../flags";
 import { requireProjectId } from "../projectContext";
 
-const SHARE_LINKS_HELP = `
+export const SHARE_LINKS_HELP = `
 Usage: dillion share-links <command> [options]
 
 Commands:

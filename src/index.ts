@@ -8,6 +8,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { loadEffectiveConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
+import { resolveHelp, rewriteHelpArgs, wantsHelp } from "./commands/help";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -75,7 +76,9 @@ function stripOrgIdFlag(argv: string[]): { orgIdFlag: string | undefined; args: 
   return { orgIdFlag, args: out };
 }
 
-const { orgIdFlag, args } = stripOrgIdFlag(process.argv.slice(2));
+const stripped = stripOrgIdFlag(process.argv.slice(2));
+const orgIdFlag = stripped.orgIdFlag;
+const args = rewriteHelpArgs(stripped.args);
 const command = args[0];
 const subcommand = args[1];
 const rest = args.slice(1);
@@ -140,6 +143,8 @@ Commands:
   share-links portal-orgs <q>  Look up client org ids by name (for --orgs)
 
 Help:
+  <command> --help             Help for one command, e.g. dillion share-links --help
+  help <command>               Same, e.g. dillion help search
   docs                         Full command reference
   skill                        Print the dillion-cli agent skill (full guide; --out <path> to save)
   help skill                   Same as skill
@@ -187,6 +192,16 @@ async function main() {
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP.trim());
     process.exit(0);
+  }
+
+  // --help is answered here, before dispatch, unless the subcommand prints its
+  // own: so it always exits 0 and never runs the command.
+  if (command && wantsHelp(rest)) {
+    const text = await resolveHelp(command, subcommand);
+    if (text !== null) {
+      console.log(text);
+      process.exit(0);
+    }
   }
 
   if (command === "--version" || command === "-v" || command === "version") {
