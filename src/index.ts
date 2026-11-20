@@ -379,6 +379,8 @@ function failUnexpected(err: unknown): never {
   process.exit(1);
 }
 
+// Help (including help a subcommand prints itself) never needs the update check.
+const helpRequested = wantsHelp(args);
 main()
-  .then(() => checkForUpdate(command))
+  .then(() => (helpRequested ? undefined : checkForUpdate(command)))
   .catch(failUnexpected);

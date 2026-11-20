@@ -43,7 +43,8 @@ export function formatOrgRows(orgs: ClientOrgSummary[]): string[] {
  * org names aren't unique, so a name could match the wrong org.
  */
 export function parseOrgIds(raw: string | undefined): { ids: string[]; notIds: string[] } {
-  const parts = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  // Same separators as --clients (commas and/or spaces): org ids never contain either.
+  const parts = (raw ?? "").split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
   const ids = [...new Set(parts.filter(looksLikeOrgId))];
   const notIds = parts.filter((p) => !looksLikeOrgId(p));
   return { ids, notIds };
@@ -98,7 +99,8 @@ export function portalBaseUrl(bastionBaseUrl: string, envOverride?: string): str
   } catch {
     // fall through to prod
   }
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".localhost")) {
+  // URL.hostname keeps the brackets on IPv6 literals: "[::1]".
+  if (host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".localhost")) {
     return "http://localhost:3001";
   }
   if (/(^|[.-])dev([.-]|$)/.test(host)) return "https://dev.portal.dillion.ai";

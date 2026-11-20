@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from "fs/promises";
+import { lookup } from "dns/promises";
+import { isIP } from "net";
 import { basename, dirname } from "path";
 import { getConfig } from "./config";
 import { getOrgOverride } from "./orgContext";
@@ -109,12 +111,37 @@ export function describeNetworkError(err: unknown, url: string): string {
   return `Couldn't reach ${host}${detail ? ` (${detail})` : ""}. Check your connection, or run: dillion health`;
 }
 
-/** `fetch` that prints describeNetworkError and exits 1 when no response arrives. */
+/**
+ * describeNetworkError, after checking DNS when the error says "refused": some
+ * Bun versions (1.3) report an unknown host as ConnectionRefused, which would
+ * wrongly tell the user the server is down.
+ */
+export async function explainNetworkError(err: unknown, url: string): Promise<string> {
+  const code = (err as { code?: string } | undefined)?.code;
+  if (code === "ConnectionRefused" || code === "ECONNREFUSED") {
+    let hostname = "";
+    try {
+      hostname = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    } catch {
+      // not a URL: fall through
+    }
+    if (hostname && !isIP(hostname) && hostname !== "localhost" && !hostname.endsWith(".localhost")) {
+      const resolves = await Promise.race([
+        lookup(hostname).then(() => true, () => false),
+        new Promise<boolean>((r) => setTimeout(() => r(true), 3000)),
+      ]);
+      if (!resolves) return describeNetworkError({ code: "ENOTFOUND" }, url);
+    }
+  }
+  return describeNetworkError(err, url);
+}
+
+/** `fetch` that prints explainNetworkError and exits 1 when no response arrives. */
 export async function fetchOrExit(url: string | URL, init?: RequestInit): Promise<Response> {
   try {
     return await fetch(url, init);
   } catch (err) {
-    console.error(describeNetworkError(err, String(url)));
+    console.error(await explainNetworkError(err, String(url)));
     process.exit(1);
   }
 }
@@ -187,7 +214,7 @@ export async function apiResult(
       signal: AbortSignal.timeout(60_000),
     });
   } catch (err) {
-    return { ok: false, unconfirmed: true, message: describeNetworkError(err, `${baseUrl}${path}`) };
+    return { ok: false, unconfirmed: true, message: await explainNetworkError(err, `${baseUrl}${path}`) };
   }
   if (!res.ok) {
     let errBody: string;

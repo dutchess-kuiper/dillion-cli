@@ -1,4 +1,4 @@
-import { describeNetworkError } from "../api";
+import { explainNetworkError } from "../api";
 import { loadConfig, saveConfig, CONFIG_DIR, type Config } from "../config";
 import { mkdirSync } from "fs";
 import { parseFlags } from "../flags";
@@ -108,7 +108,7 @@ export async function authCommand(args: string[]) {
   });
 
   if (!res) {
-    console.error(describeNetworkError(networkError, server));
+    console.error(await explainNetworkError(networkError, server));
     process.exit(1);
   }
   if (res.status === 401 || res.status === 403) {
