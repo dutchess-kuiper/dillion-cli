@@ -210,9 +210,24 @@ export async function resolveHelp(command: string, sub: string | undefined): Pro
   return null;
 }
 
-/** True when the args ask for help: a bare --help / -h anywhere. */
+/** True when the args ask for help: --help / -h (or --help=…) anywhere before `--`. */
 export function wantsHelp(args: string[]): boolean {
-  return args.some((a) => a === "--help" || a === "-h");
+  const end = args.indexOf("--");
+  const head = end === -1 ? args : args.slice(0, end);
+  return head.some((a) => a === "--help" || a === "-h" || a.startsWith("--help="));
+}
+
+/**
+ * When help is asked for, reduce the args to `<command> [sub] --help`, nothing
+ * else. Handlers parse `--help <next>` as a flag WITH a value and would then
+ * run (e.g. `artifacts init --help mydir` created mydir); with only a bare
+ * `--help` left, every handler prints its help.
+ */
+export function normalizeHelpArgs(args: string[]): string[] {
+  if (!wantsHelp(args) || args.length === 0) return args;
+  const [command, sub] = args;
+  const keepSub = sub !== undefined && sub !== "--" && !sub.startsWith("-");
+  return keepSub ? [command!, sub!, "--help"] : [command!, "--help"];
 }
 
 /**

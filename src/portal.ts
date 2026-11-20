@@ -3,17 +3,10 @@
  * attaching existing client users or client orgs lets them open it on
  * portal.dillion.ai after signing in, with no link password.
  *
- * The CLI only ever attaches people and orgs that ALREADY exist. The backend's
- * attach route would create a brand-new client user for an unknown email, so
- * the existence check lives here, before any write.
+ * The CLI only ever attaches people and orgs that ALREADY exist. That rule is
+ * enforced by the server (POST /share-links/:id/portal-access refuses unknown
+ * emails and org ids, and grants everything in one transaction).
  */
-
-export interface ClientUserSuggestion {
-  client_user_id: string;
-  email: string;
-  full_name?: string | null;
-  has_logged_in: boolean;
-}
 
 export interface ClientOrgSummary {
   org_id: string;
@@ -22,8 +15,6 @@ export interface ClientOrgSummary {
   created_at: string;
   created_by_email?: string | null;
 }
-
-export type Resolution<T> = { ok: true; value: T } | { ok: false; message: string };
 
 /**
  * An `org_` token with no spaces is an id (WorkOS ids are `org_` + a ULID, but
@@ -34,22 +25,6 @@ const ORG_ID = /^org_[A-Za-z0-9_]+$/;
 
 export function looksLikeOrgId(s: string): boolean {
   return ORG_ID.test(s.trim());
-}
-
-/** Pick the existing client whose email is exactly `email` from a search result. */
-export function pickExistingClient(
-  email: string,
-  results: ClientUserSuggestion[],
-): Resolution<ClientUserSuggestion> {
-  const want = email.trim().toLowerCase();
-  const hit = results.find((r) => r.email.toLowerCase() === want);
-  if (hit) return { ok: true, value: hit };
-  return {
-    ok: false,
-    message:
-      `${email} is not an existing portal client. The CLI only adds people who already ` +
-      `have portal access; invite new people from the share link's settings in the VDR web app.`,
-  };
 }
 
 /** One line per org: id first (what --orgs should get), then name and disambiguators. */
@@ -63,29 +38,52 @@ export function formatOrgRows(orgs: ClientOrgSummary[]): string[] {
   );
 }
 
-/** Pick the one existing client org whose name is exactly `name` (case-insensitive). */
-export function pickExistingOrg(
-  name: string,
-  results: ClientOrgSummary[],
-): Resolution<ClientOrgSummary> {
-  const want = name.trim().toLowerCase();
-  const hits = results.filter((r) => r.name.trim().toLowerCase() === want);
-  if (hits.length === 1) return { ok: true, value: hits[0]! };
-  if (hits.length > 1) {
-    const rows = formatOrgRows(hits).map((r) => `  ${r}`).join("\n");
-    return {
-      ok: false,
-      message: `${hits.length} client orgs are named "${name}". Pass the org id instead:\n${rows}`,
-    };
+/**
+ * Split --orgs into org ids and anything that isn't one. Grants take ids only:
+ * org names aren't unique, so a name could match the wrong org.
+ */
+export function parseOrgIds(raw: string | undefined): { ids: string[]; notIds: string[] } {
+  const parts = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ids = [...new Set(parts.filter(looksLikeOrgId))];
+  const notIds = parts.filter((p) => !looksLikeOrgId(p));
+  return { ids, notIds };
+}
+
+/**
+ * Human summary of who can open a link on the portal. Revoked grants are past
+ * access, and a revoked LINK means nobody can open it, whatever the grants say.
+ */
+export function describePortalAccess(
+  link: { revoked_at?: string | null },
+  clients: Array<{ email: string; full_name?: string | null; has_logged_in?: boolean; revoked_at?: string | null }>,
+  orgs: Array<{ org_id: string; name: string; revoked_at?: string | null }>,
+): string[] {
+  const lines: string[] = [];
+  const liveClients = clients.filter((c) => !c.revoked_at);
+  const liveOrgs = orgs.filter((o) => !o.revoked_at);
+  const pastClients = clients.filter((c) => c.revoked_at);
+  const pastOrgs = orgs.filter((o) => o.revoked_at);
+  const who = (c: { email: string; full_name?: string | null }) =>
+    c.full_name ? `${c.full_name} <${c.email}>` : c.email;
+  if (link.revoked_at) {
+    lines.push(`  access:    NONE — the link was revoked ${link.revoked_at.slice(0, 10)}; nobody can open it`);
+    lines.push(`  granted before the revoke: ${liveClients.length} client(s), ${liveOrgs.length} org(s)`);
+    for (const c of liveClients) lines.push(`    ${who(c)}`);
+    for (const o of liveOrgs) lines.push(`    ${o.org_id}  ${o.name}`);
+  } else {
+    lines.push(`  clients (${liveClients.length}):`);
+    for (const c of liveClients) {
+      lines.push(`    ${who(c)}${c.has_logged_in === false ? "  (hasn't signed in yet)" : ""}`);
+    }
+    lines.push(`  orgs (${liveOrgs.length}):`);
+    for (const o of liveOrgs) lines.push(`    ${o.org_id}  ${o.name}`);
   }
-  const near = formatOrgRows(results.slice(0, 5)).map((r) => `  ${r}`).join("\n");
-  return {
-    ok: false,
-    message:
-      `No existing client org named "${name}". The CLI only adds existing orgs; create ` +
-      `new ones from the VDR web app. Find ids with: dillion share-links portal-orgs <name>` +
-      (near ? `\nDid you mean:\n${near}` : ""),
-  };
+  if (pastClients.length || pastOrgs.length) {
+    lines.push(`  removed earlier (no access): ${pastClients.length} client(s), ${pastOrgs.length} org(s)`);
+    for (const c of pastClients) lines.push(`    ${who(c)}  (removed ${c.revoked_at!.slice(0, 10)})`);
+    for (const o of pastOrgs) lines.push(`    ${o.org_id}  ${o.name}  (removed ${o.revoked_at!.slice(0, 10)})`);
+  }
+  return lines;
 }
 
 /**
@@ -122,6 +120,7 @@ export function portalOnlyFlagConflicts(flags: Record<string, unknown>): string[
     "expires-days": "--expires-days (expiry only applies to the public /share URL)",
     domains: "--domains (email gates only apply to the public /share URL)",
     emails: "--emails (email gates only apply to the public /share URL; use --clients for portal people)",
+    "no-citations": "--no-citations (portal viewers always see source previews)",
   };
   for (const [flag, reason] of Object.entries(reasons)) {
     if (flags[flag] !== undefined) conflicts.push(reason);
