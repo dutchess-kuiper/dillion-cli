@@ -175,13 +175,31 @@ export async function filesDownloadCommand(args: string[]) {
         body: { jobIds: positional, ...(projectId && { projectId }) },
       });
       console.log(JSON.stringify(data, null, 2));
+      const entries: Array<{ jobId?: string; error?: string | null; url?: string | null }> =
+        Array.isArray(data?.urls) ? data.urls : [];
+      const returned = new Set(entries.map((e) => String(e.jobId ?? "")));
+      exitForDownloadFailures([
+        ...entries.map((e) => ({ jobId: String(e.jobId ?? ""), error: e.error || (e.url ? undefined : "no URL") })),
+        ...positional.filter((id) => !returned.has(id)).map((jobId) => ({ jobId, error: "not returned by the server" })),
+      ], { quiet: true });
       return;
     }
 
+    // One bad job id must not lose the others: each file reports its own error.
     const files = await Promise.all(
-      positional.map((jobId) => fetchTextJob({ jobId, projectId }))
+      positional.map(async (jobId) => {
+        try {
+          return await fetchTextJob({ jobId, projectId });
+        } catch (error) {
+          return { jobId, error: error instanceof Error ? error.message : String(error) };
+        }
+      })
     );
     console.log(JSON.stringify({ files }, null, 2));
+    exitForDownloadFailures(
+      files.map((f) => ({ error: "error" in f ? f.error : undefined })),
+      { quiet: true },
+    );
     return;
   }
 
@@ -202,6 +220,7 @@ export async function filesDownloadCommand(args: string[]) {
       console.log(`FILE  ${result.fileName}`);
       console.log(`  ${result.savedTo}\n`);
     }
+    exitForDownloadFailures(results);
     return;
   }
 
@@ -233,6 +252,37 @@ export async function filesDownloadCommand(args: string[]) {
     console.log(`TXT   ${result.fileName}`);
     console.log(`  ${result.savedTo}\n`);
   }
+  exitForDownloadFailures(results);
+}
+
+/**
+ * Exit status for a batch download: 0 only when every requested file was
+ * saved. Failures don't stop the batch (the other files still download); the
+ * command just exits 1 at the end so scripts can tell.
+ */
+export function downloadOutcome(results: Array<{ error?: string | null }>): {
+  failed: number;
+  total: number;
+  exitCode: 0 | 1;
+} {
+  const failed = results.filter((r) => r.error).length;
+  return { failed, total: results.length, exitCode: failed > 0 ? 1 : 0 };
+}
+
+function exitForDownloadFailures(
+  results: Array<{ error?: string | null }>,
+  options: { quiet?: boolean } = {},
+): void {
+  const { failed, total, exitCode } = downloadOutcome(results);
+  if (exitCode === 0) return;
+  if (!options.quiet) {
+    console.error(
+      failed === total
+        ? `No files downloaded (${failed} failed).`
+        : `${total - failed} of ${total} files downloaded; ${failed} failed.`,
+    );
+  }
+  process.exit(exitCode);
 }
 
 async function downloadOriginalJobs(options: {
@@ -247,7 +297,11 @@ async function downloadOriginalJobs(options: {
   });
 
   const entries = Array.isArray(data.urls) ? data.urls : [];
-  return Promise.all(
+  const returned = new Set(entries.map((e: any) => String(e.jobId || "")));
+  const missing = options.jobIds
+    .filter((id) => !returned.has(id))
+    .map((jobId) => ({ jobId, error: "not returned by the server" }) as { jobId: string; error?: string; fileName?: string; savedTo?: string });
+  const fetched = await Promise.all(
     entries.map(async (entry: any) => {
       const jobId = String(entry.jobId || "");
 
@@ -279,6 +333,7 @@ async function downloadOriginalJobs(options: {
       }
     })
   );
+  return [...fetched, ...missing];
 }
 
 async function fetchTextJob(options: {
