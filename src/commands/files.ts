@@ -1,6 +1,6 @@
 import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError, describeNetworkError } from "../api";
+import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError, explainNetworkError } from "../api";
 import { getConfig } from "../config";
 import { waitForJobCompletion } from "../jobWait";
 import { requireProjectId, resolveProjectId } from "../projectContext";
@@ -197,7 +197,7 @@ export async function filesDownloadCommand(args: string[]) {
     );
     console.log(JSON.stringify({ files }, null, 2));
     exitForDownloadFailures(
-      files.map((f) => ({ error: "error" in f ? f.error : undefined })),
+      files.map((f) => ({ jobId: f.jobId, error: "error" in f ? f.error : undefined })),
       { quiet: true },
     );
     return;
@@ -270,12 +270,17 @@ export function downloadOutcome(results: Array<{ error?: string | null }>): {
 }
 
 function exitForDownloadFailures(
-  results: Array<{ error?: string | null }>,
+  results: Array<{ jobId?: string; error?: string | null }>,
   options: { quiet?: boolean } = {},
 ): void {
   const { failed, total, exitCode } = downloadOutcome(results);
   if (exitCode === 0) return;
-  if (!options.quiet) {
+  if (options.quiet) {
+    // --json keeps stdout as JSON; say on stderr which files failed and why.
+    for (const r of results as Array<{ jobId?: string; error?: string | null }>) {
+      if (r.error) console.error(`FAIL  ${r.jobId ?? "?"}: ${r.error}`);
+    }
+  } else {
     console.error(
       failed === total
         ? `No files downloaded (${failed} failed).`
@@ -353,7 +358,7 @@ async function fetchTextJob(options: {
       signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {
-    throw new Error(describeNetworkError(err, String(url)));
+    throw new Error(await explainNetworkError(err, String(url)));
   }
 
   let body: string;

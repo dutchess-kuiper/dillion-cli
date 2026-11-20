@@ -1,6 +1,6 @@
 import { dirname } from "path";
 import { mkdir } from "fs/promises";
-import { apiBaseUrl, buildHeaders, describeNetworkError } from "../api";
+import { apiBaseUrl, buildHeaders, explainNetworkError } from "../api";
 import { getConfig } from "../config";
 import { parseFlags } from "../flags";
 
@@ -53,7 +53,7 @@ async function fetchSkill(): Promise<string> {
       signal: AbortSignal.timeout(30_000),
     });
   } catch (err) {
-    console.error(describeNetworkError(err, baseUrl));
+    console.error(await explainNetworkError(err, baseUrl));
     process.exit(1);
   }
   const text = await res.text();

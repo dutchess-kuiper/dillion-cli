@@ -639,6 +639,16 @@ async function shareLinksPortalAdd(args: string[]) {
     console.error(`Link ${link.id} is revoked; nobody can open it. Create a new link instead.`);
     process.exit(1);
   }
+  // Portal viewers always get each report's latest version, so a link with
+  // pinned versions can't take portal access (the server refuses it too).
+  const pinned = (link.items ?? []).filter((i: any) => i.pinned_version != null);
+  if (pinned.length > 0) {
+    console.error(
+      `This link pins ${pinned.length} report(s) to a version, but portal viewers always see the latest.\n` +
+        `Nothing was granted. Unpin them first: dillion share-links update ${link.id} --reports <ids> (without --versions)`,
+    );
+    process.exit(1);
+  }
   // Checked BEFORE granting: portal viewers always see source previews, so on
   // a link that has them off, granting would show what the analyst hid.
   const warnings: string[] = [];
