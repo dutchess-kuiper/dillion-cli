@@ -325,11 +325,11 @@ dillion share-links create \
   --title "Acme diligence pack" \
   --reports <report-id-1>,<report-id-2> \
   --portal \
-  --clients gordon@example.com \
-  --orgs org_01M3M03P392PECZ8V720YBEST2
+  --clients client@example.com \
+  --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
 
 # Give more existing clients/orgs access to any link (public or portal-only)
-dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs org_01M3M03P392PECZ8V720YBEST2
+dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
 
 # Who can open it, and the portal URL to send
 dillion share-links portal-list <link-id>
