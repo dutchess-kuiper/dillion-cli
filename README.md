@@ -328,9 +328,12 @@ https://vdr.dillion.ai/share/<slug>
 
 A share link can also be opened on the client portal (`portal.dillion.ai`): the people and orgs you attach sign in there and see it, with no link password. `--portal` makes the link portal-only (no public `/share` URL at all).
 
-The CLI only attaches **existing** portal clients (exact email) and **existing** client orgs (exact name, or `org_…` id). It never creates new people or orgs — invite those from the VDR web app first. Client invites always email the person; org members are emailed unless you pass `--no-notify`.
+The CLI only attaches **existing** portal clients (exact email) and **existing** client orgs. Pass orgs by **id** (`org_…`): names aren't unique, so look the id up with `portal-orgs` first. An exact org name still works, and the CLI refuses a name two orgs share. It never creates new people or orgs — invite those from the VDR web app first. Client invites always email the person; org members are emailed unless you pass `--no-notify`.
 
 ```sh
+# Find the org id (name search; prints id, name, created date/by, description)
+dillion share-links portal-orgs "Acme"
+
 # New portal-only link for an existing client and an existing org
 dillion share-links create \
   -p <project-id> \
@@ -338,10 +341,10 @@ dillion share-links create \
   --reports <report-id-1>,<report-id-2> \
   --portal \
   --clients gordon@example.com \
-  --orgs "Acme Capital"
+  --orgs org_01M3M03P392PECZ8V720YBEST2
 
 # Give more existing clients/orgs access to any link (public or portal-only)
-dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs "Acme Capital"
+dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs org_01M3M03P392PECZ8V720YBEST2
 
 # Who can open it, and the portal URL to send
 dillion share-links portal-list <link-id>

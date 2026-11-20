@@ -137,6 +137,7 @@ Commands:
   share-links create --portal  Create a portal link (no password) for existing clients/orgs
   share-links portal-add <id>  Give existing portal clients/orgs access to a link
   share-links portal-list <id> Show a link's portal URL and who can open it
+  share-links portal-orgs <q>  Look up client org ids by name (for --orgs)
 
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
