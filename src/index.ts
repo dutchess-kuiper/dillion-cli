@@ -134,6 +134,9 @@ Commands:
   share-links get <link-id>    Show a share link with items
   share-links update <link-id> Change slug, password, expiry, email allowlist, items
   share-links revoke <link-id> Soft-revoke a share link
+  share-links create --portal  Create a portal link (no password) for existing clients/orgs
+  share-links portal-add <id>  Give existing portal clients/orgs access to a link
+  share-links portal-list <id> Show a link's portal URL and who can open it
 
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)

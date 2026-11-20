@@ -1,4 +1,14 @@
-import { api } from "../api";
+import { api, apiBaseUrl, apiResult } from "../api";
+import {
+  looksLikeOrgId,
+  pickExistingClient,
+  pickExistingOrg,
+  portalBaseUrl,
+  portalBundleUrl,
+  portalOnlyFlagConflicts,
+  type ClientOrgSummary,
+  type ClientUserSuggestion,
+} from "../portal";
 import { parseFlags } from "../flags";
 import { requireProjectId } from "../projectContext";
 
@@ -21,6 +31,23 @@ Commands:
     [--domains a.com,b.co]      Restrict to allowed email domains
     [--emails a@x.com,b@y.com]  Restrict to specific allowed emails
     [--json]                    Raw JSON output
+
+  create -p <pid> --title <t> --reports <ids> --portal --clients <emails> --orgs <names|ids>
+                                Create a PORTAL link (portal.dillion.ai): no password; the
+                                listed people/orgs open it after signing in to the portal
+    --portal                    Portal-only: no public /share URL, no password
+    [--clients a@x.com,b@y.com] Existing portal clients to give access (exact emails)
+    [--orgs "Acme Corp,org_…"]  Existing client orgs (exact name or org id; every member
+                                gets access)
+    [--no-notify]               Don't email org members (client invites always email)
+                                At least one of --clients / --orgs is required. Only EXISTING
+                                clients and orgs are accepted — invite new people from the
+                                VDR web app. --clients/--orgs also work without --portal
+                                (link keeps its password-protected /share URL too).
+
+  portal-add <link-id> [--clients <emails>] [--orgs <names|ids>] [--no-notify]
+                                Give existing portal clients / orgs access to a link
+  portal-list <link-id>         Show who can open a link on the portal, plus its portal URL
 
   list -p <pid>                 List share links for a project
   get <link-id>                 Show a share link and its items
@@ -63,6 +90,10 @@ export async function shareLinksCommand(args: string[]) {
     case "revoke":
     case "delete":
       return shareLinksRevoke(rest);
+    case "portal-add":
+      return shareLinksPortalAdd(rest);
+    case "portal-list":
+      return shareLinksPortalList(rest);
     default:
       console.error(`Unknown share-links subcommand: ${sub}`);
       console.error(SHARE_LINKS_HELP);
@@ -188,10 +219,31 @@ async function shareLinksCreate(args: string[]) {
     console.error("--reports <id1,id2,...> is required (at least one report)");
     process.exit(1);
   }
-  if (flags.password === undefined) {
-    console.error("--password <pw> is required (8+ chars): share links must be password-protected");
+  const portalOnly = flags.portal !== undefined;
+  const audience = portalAudienceFlags(flags);
+  if (portalOnly) {
+    const conflicts = portalOnlyFlagConflicts(flags);
+    if (conflicts.length > 0) {
+      console.error(`--portal can't be combined with:\n  ${conflicts.join("\n  ")}`);
+      process.exit(1);
+    }
+    if (audience.emails.length === 0 && audience.orgs.length === 0) {
+      console.error("--portal needs at least one of --clients <emails> or --orgs <names|ids>");
+      process.exit(1);
+    }
+  } else if (flags.password === undefined) {
+    console.error(
+      "--password <pw> is required (8+ chars): share links must be password-protected.\n" +
+        "To skip the password, make a portal link instead: --portal --clients <emails> / --orgs <names>",
+    );
     process.exit(1);
   }
+  if (audience.any && flags.versions) {
+    console.error("--versions can't be used with portal access: portal links always show the latest version");
+    process.exit(1);
+  }
+  // Resolve before creating anything, so an unknown person/org leaves no link behind.
+  const resolved = await resolvePortalAudience(audience);
   const body: Record<string, unknown> = {
     title: String(flags.title),
     items: buildItemsArray(
@@ -203,6 +255,7 @@ async function shareLinksCreate(args: string[]) {
   };
   if (flags.slug) body.slug = String(flags.slug);
   if (flags.description) body.description = String(flags.description);
+  if (portalOnly) body.portal_only = true;
   applyPasswordFlag(body, flags.password);
   applyExpiresDaysFlag(body, flags["expires-days"]);
   const domains = parseCommaList(
@@ -218,13 +271,37 @@ async function shareLinksCreate(args: string[]) {
     `/projects/${encodeURIComponent(projectId)}/share-links`,
     { method: "POST", body },
   );
+  const link = res.link;
+  let grants: PortalGrants | undefined;
+  if (audience.any) {
+    const outcome = await attachPortalAudience(link.id, resolved, flags["no-notify"] === undefined);
+    if (!outcome.ok) {
+      // Don't leave a half-built link: revoke it, then report why.
+      await apiResult(`/share-links/${encodeURIComponent(link.id)}`, { method: "DELETE" });
+      console.error(`${outcome.message}\nThe new link was revoked; nothing was shared.`);
+      process.exit(1);
+    }
+    grants = outcome;
+  }
+  const portalUrl = audience.any ? await portalUrlFor(link.project_id, link.id) : undefined;
   if (flags.json !== undefined) {
-    console.log(JSON.stringify(res, null, 2));
+    console.log(
+      JSON.stringify(
+        grants ? { ...res, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs } : res,
+        null,
+        2,
+      ),
+    );
     return;
   }
-  const link = res.link;
-  console.log("✓ Share link created");
+  console.log(portalOnly ? "✓ Portal link created" : "✓ Share link created");
   console.log(`  id:        ${link.id}`);
+  if (portalUrl) console.log(`  portal:    ${portalUrl}`);
+  if (grants) printPortalGrants(grants);
+  if (portalOnly) {
+    console.log(`  reports:   ${link.item_count}`);
+    return;
+  }
   console.log(`  slug:      ${link.slug}`);
   console.log(`  url:       ${shareLinkPublicUrl(link.slug)}`);
   console.log(`  reports:   ${link.item_count}`);
@@ -260,12 +337,17 @@ async function shareLinksList(args: string[]) {
   }
   for (const l of data) {
     const status = l.revoked_at ? "revoked" : "active";
-    const pw = l.has_password ? "password" : "open";
-    const email = l.requires_email ? "email-allowlist" : "no-allowlist";
-    const exp = l.expires_at ? `expires ${l.expires_at.slice(0, 10)}` : "no expiry";
-    console.log(
-      `${l.id}  /share/${l.slug}  (${l.item_count} reports)  ${status}  ${pw}  ${email}  ${exp}`,
-    );
+    const portal = `portal: ${l.client_count ?? 0} client(s), ${l.org_count ?? 0} org(s)`;
+    if (l.portal_only) {
+      console.log(`${l.id}  portal-only  (${l.item_count} reports)  ${status}  ${portal}`);
+    } else {
+      const pw = l.has_password ? "password" : "open";
+      const email = l.requires_email ? "email-allowlist" : "no-allowlist";
+      const exp = l.expires_at ? `expires ${l.expires_at.slice(0, 10)}` : "no expiry";
+      console.log(
+        `${l.id}  /share/${l.slug}  (${l.item_count} reports)  ${status}  ${pw}  ${email}  ${exp}  ${portal}`,
+      );
+    }
     console.log(`  title: ${l.title}`);
   }
 }
@@ -284,7 +366,7 @@ async function shareLinksGet(args: string[]) {
     console.log(JSON.stringify(data, null, 2));
     return;
   }
-  console.log(`${data.id}  /share/${data.slug}`);
+  console.log(data.portal_only ? `${data.id}  (portal-only)` : `${data.id}  /share/${data.slug}`);
   console.log(`  title:      ${data.title}`);
   if (data.description) console.log(`  description: ${data.description}`);
   console.log(`  project:    ${data.project_id}`);
@@ -305,7 +387,11 @@ async function shareLinksGet(args: string[]) {
     const label = item.display_label ? ` [${item.display_label}]` : "";
     console.log(`    ${item.report_id}  ${pin}  ${item.report_title}${label}`);
   }
-  console.log(`  url:        ${shareLinkPublicUrl(data.slug)}`);
+  if (!data.portal_only) console.log(`  url:        ${shareLinkPublicUrl(data.slug)}`);
+  if (data.portal_only || data.client_count || data.org_count) {
+    console.log(`  portal:     ${await portalUrlFor(data.project_id, data.id)}`);
+    console.log(`              ${data.client_count ?? 0} client(s), ${data.org_count ?? 0} org(s) — see share-links portal-list`);
+  }
 }
 
 // ─── update ──────────────────────────────────────────────────────────────
@@ -417,4 +503,202 @@ async function shareLinksRevoke(args: string[]) {
     return;
   }
   console.log(`✓ Revoked ${linkId}`);
+}
+
+// ─── portal access ───────────────────────────────────────────────────────
+
+interface PortalAudience {
+  emails: string[];
+  orgs: string[];
+  any: boolean;
+}
+
+function portalAudienceFlags(flags: Record<string, string | undefined>): PortalAudience {
+  for (const f of ["clients", "orgs"]) {
+    if (flags[f] === "") {
+      console.error(`--${f} needs a value`);
+      process.exit(1);
+    }
+  }
+  const emails = parseCommaList(flags.clients);
+  // Org names can contain spaces, so split on commas only.
+  const orgs = (flags.orgs ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return { emails, orgs, any: emails.length > 0 || orgs.length > 0 };
+}
+
+interface ResolvedAudience {
+  clients: ClientUserSuggestion[];
+  orgIds: string[];
+}
+
+/** Map every --clients email / --orgs entry to an EXISTING record, or exit. */
+async function resolvePortalAudience(audience: PortalAudience): Promise<ResolvedAudience> {
+  const errors: string[] = [];
+  const clients: ClientUserSuggestion[] = [];
+  for (const email of audience.emails) {
+    const results: ClientUserSuggestion[] = await api(
+      `/client-users?q=${encodeURIComponent(email)}&limit=25`,
+    );
+    const r = pickExistingClient(email, results);
+    if (r.ok) clients.push(r.value);
+    else errors.push(r.message);
+  }
+  const orgIds: string[] = [];
+  for (const org of audience.orgs) {
+    // An org id can't be looked up by search; the attach route 404s an unknown
+    // one, and create revokes the link if that happens.
+    if (looksLikeOrgId(org)) {
+      orgIds.push(org);
+      continue;
+    }
+    const results: ClientOrgSummary[] = await api(
+      `/client-orgs?q=${encodeURIComponent(org)}&limit=50`,
+    );
+    const r = pickExistingOrg(org, results);
+    if (r.ok) orgIds.push(r.value.org_id);
+    else errors.push(r.message);
+  }
+  if (errors.length > 0) {
+    console.error(errors.join("\n"));
+    process.exit(1);
+  }
+  return { clients, orgIds: [...new Set(orgIds)] };
+}
+
+interface PortalGrants {
+  ok: true;
+  clients: any[];
+  orgs: any[];
+  invitedEmails: string[];
+  notifiedOrgMembers: number;
+  notifyOrgErrors: string[];
+}
+
+type PortalGrantOutcome = PortalGrants | { ok: false; message: string };
+
+async function attachPortalAudience(
+  linkId: string,
+  resolved: ResolvedAudience,
+  notifyOrgs: boolean,
+): Promise<PortalGrantOutcome> {
+  const id = encodeURIComponent(linkId);
+  let clients: any[] = [];
+  let orgs: any[] = [];
+  let invitedEmails: string[] = [];
+  let notifiedOrgMembers = 0;
+  let notifyOrgErrors: string[] = [];
+  // Orgs first: an org passed by id is only checked here (404 if unknown), and a
+  // failed attach writes nothing and emails nobody. Clients are already known to
+  // exist, so attaching them second means a bad org id never leaves invite
+  // emails pointing at a link that create then revokes.
+  if (resolved.orgIds.length > 0) {
+    const r = await apiResult(`/share-links/${id}/orgs`, {
+      method: "POST",
+      body: { org_ids: resolved.orgIds, notify: notifyOrgs },
+    });
+    if (!r.ok) return { ok: false, message: `Adding orgs failed: ${r.message}` };
+    orgs = r.data.orgs ?? [];
+    notifiedOrgMembers = r.data.notified_count ?? 0;
+    notifyOrgErrors = r.data.notify_org_errors ?? [];
+  }
+  if (resolved.clients.length > 0) {
+    const r = await apiResult(`/share-links/${id}/clients`, {
+      method: "POST",
+      body: { emails: resolved.clients.map((c) => c.email) },
+    });
+    if (!r.ok) return { ok: false, message: `Adding clients failed: ${r.message}` };
+    clients = r.data.clients ?? [];
+    invitedEmails = (r.data.email_results ?? [])
+      .filter((e: any) => e.email_sent)
+      .map((e: any) => e.email);
+  }
+  return { ok: true, clients, orgs, invitedEmails, notifiedOrgMembers, notifyOrgErrors };
+}
+
+function printPortalGrants(g: PortalGrants) {
+  const liveClients = g.clients.filter((c) => !c.revoked_at);
+  const liveOrgs = g.orgs.filter((o) => !o.revoked_at);
+  if (liveClients.length > 0) {
+    console.log(`  clients:   ${liveClients.map((c) => c.email).join(", ")}`);
+  }
+  if (liveOrgs.length > 0) {
+    console.log(`  orgs:      ${liveOrgs.map((o) => o.name).join(", ")}`);
+  }
+  if (g.invitedEmails.length > 0) {
+    console.log(`  emailed:   ${g.invitedEmails.join(", ")}`);
+  }
+  if (g.notifiedOrgMembers > 0) {
+    console.log(`  emailed:   ${g.notifiedOrgMembers} org member(s)`);
+  }
+  if (g.notifyOrgErrors.length > 0) {
+    console.log(`  warning:   couldn't email members of ${g.notifyOrgErrors.join(", ")}`);
+  }
+}
+
+async function portalUrlFor(projectId: string, linkId: string): Promise<string> {
+  const base = portalBaseUrl(await apiBaseUrl(), process.env.DILLION_PORTAL_URL);
+  return portalBundleUrl(base, projectId, linkId);
+}
+
+async function shareLinksPortalAdd(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const linkId = positional[0];
+  const audience = portalAudienceFlags(flags);
+  if (!linkId || !audience.any) {
+    console.error(
+      "Usage: dillion share-links portal-add <link-id> [--clients a@x.com,b@y.com] [--orgs \"Acme Corp,org_…\"] [--no-notify]\n" +
+        "  At least one of --clients / --orgs. Only existing portal clients and orgs are accepted.",
+    );
+    process.exit(1);
+  }
+  const link = await api(`/share-links/${encodeURIComponent(linkId)}`);
+  const resolved = await resolvePortalAudience(audience);
+  const grants = await attachPortalAudience(link.id, resolved, flags["no-notify"] === undefined);
+  if (!grants.ok) {
+    console.error(grants.message);
+    process.exit(1);
+  }
+  const portalUrl = await portalUrlFor(link.project_id, link.id);
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify({ link_id: link.id, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs }, null, 2));
+    return;
+  }
+  console.log("✓ Portal access updated");
+  console.log(`  link:      ${link.id}  ${link.title}`);
+  console.log(`  portal:    ${portalUrl}`);
+  printPortalGrants(grants);
+}
+
+async function shareLinksPortalList(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const linkId = positional[0];
+  if (!linkId) {
+    console.error("Usage: dillion share-links portal-list <link-id>");
+    process.exit(1);
+  }
+  const id = encodeURIComponent(linkId);
+  const [link, clients, orgs] = await Promise.all([
+    api(`/share-links/${id}`),
+    api(`/share-links/${id}/clients`),
+    api(`/share-links/${id}/orgs`),
+  ]);
+  const portalUrl = await portalUrlFor(link.project_id, link.id);
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify({ link_id: link.id, portal_url: portalUrl, clients: clients.clients, orgs: orgs.orgs }, null, 2));
+    return;
+  }
+  console.log(`${link.id}  ${link.title}${link.portal_only ? "  (portal-only)" : ""}`);
+  console.log(`  portal:    ${portalUrl}`);
+  const liveClients = (clients.clients ?? []).filter((c: any) => !c.revoked_at);
+  const liveOrgs = (orgs.orgs ?? []).filter((o: any) => !o.revoked_at);
+  console.log(`  clients (${liveClients.length}):`);
+  for (const c of liveClients) {
+    const name = c.full_name ? `${c.full_name} <${c.email}>` : c.email;
+    console.log(`    ${name}${c.has_logged_in ? "" : "  (hasn't signed in yet)"}`);
+  }
+  console.log(`  orgs (${liveOrgs.length}):`);
+  for (const o of liveOrgs) console.log(`    ${o.name}  ${o.org_id}`);
 }
