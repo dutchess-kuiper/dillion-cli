@@ -73,6 +73,47 @@ export function formatApiError(status: number, body: string): string {
   return Object.hasOwn(ORG_SCOPE_MESSAGES, msg) ? ORG_SCOPE_MESSAGES[msg]! : `Error ${status}: ${msg}`;
 }
 
+/**
+ * Explain a failed fetch (no HTTP response at all) in one line, without a
+ * stack trace. Pure: the caller decides whether to exit.
+ */
+export function describeNetworkError(err: unknown, url: string): string {
+  let host = url;
+  try {
+    host = new URL(url).origin;
+  } catch {
+    // keep the raw value
+  }
+  const e = err as { name?: string; code?: string; message?: string } | undefined;
+  const code = e?.code ?? "";
+  if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+    return `${host} didn't respond in time. Try again, or check it with: dillion health`;
+  }
+  if (code === "ERR_INVALID_URL") {
+    return "The saved server URL isn't valid. See it with: dillion auth status, fix it with: dillion auth <api-key> --url=<url>";
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return `Couldn't find ${host}. Check your internet connection and the server URL (dillion auth status).`;
+  }
+  if (code === "ConnectionRefused" || code === "ECONNREFUSED") {
+    return `Couldn't connect to ${host}: nothing is accepting connections there. Is the server up? (dillion auth status)`;
+  }
+  if (/CERT|TLS|SSL/i.test(code) || /certificate/i.test(e?.message ?? "")) {
+    return `Couldn't make a secure connection to ${host} (certificate problem).`;
+  }
+  return `Couldn't reach ${host}${e?.message ? ` (${e.message})` : ""}. Check your connection, or run: dillion health`;
+}
+
+/** `fetch` that prints describeNetworkError and exits 1 when no response arrives. */
+export async function fetchOrExit(url: string | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    console.error(describeNetworkError(err, String(url)));
+    process.exit(1);
+  }
+}
+
 /** Shared terminal error path for all fetch sites: print the message and exit 1. */
 export function failWithApiError(status: number, body: string): never {
   console.error(formatApiError(status, body));
@@ -95,7 +136,7 @@ export async function api(
   const { apiKey, baseUrl } = await config();
   const { method = "GET", body, raw = false } = options;
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method,
     headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
@@ -132,7 +173,7 @@ export async function apiResult(
       signal: AbortSignal.timeout(60_000),
     });
   } catch (err) {
-    return { ok: false, transport: true, message: err instanceof Error ? err.message : String(err) };
+    return { ok: false, transport: true, message: describeNetworkError(err, `${baseUrl}${path}`) };
   }
   if (!res.ok) return { ok: false, transport: false, message: formatApiError(res.status, await res.text()) };
   // A cut-off body can parse to null instead of throwing: either way the
@@ -169,7 +210,7 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
   formData.append("file", file, name);
 
   const url = `${baseUrl}/upload?project_id=${encodeURIComponent(projectId)}`;
-  const res = await fetch(url, {
+  const res = await fetchOrExit(url, {
     method: "POST",
     headers: buildHeaders(apiKey),
     body: formData,
@@ -211,7 +252,7 @@ export async function apiUploadMultipart(
     if (v !== undefined && v !== null) formData.append(k, v);
   }
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method: options.method ?? "POST",
     headers: buildHeaders(apiKey),
     body: formData,
@@ -227,7 +268,7 @@ export async function apiUploadMultipart(
 /** GET binary from bastion (e.g. research report source zip). Writes to `outPath`. */
 export async function apiDownloadToFile(path: string, outPath: string): Promise<void> {
   const { apiKey, baseUrl } = await config();
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method: "GET",
     headers: buildHeaders(apiKey),
   });

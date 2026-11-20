@@ -364,4 +364,21 @@ async function main() {
   }
 }
 
-main().then(() => checkForUpdate(command));
+/**
+ * Last line of defence: anything a command didn't handle becomes one line on
+ * stderr and exit 1, never a Bun stack trace. DILLION_DEBUG=1 shows the stack.
+ */
+function failUnexpected(err: unknown): never {
+  if (process.env.DILLION_DEBUG) {
+    console.error(err);
+  } else {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Error: ${message}`);
+    console.error("(Run with DILLION_DEBUG=1 for details.)");
+  }
+  process.exit(1);
+}
+
+main()
+  .then(() => checkForUpdate(command))
+  .catch(failUnexpected);
