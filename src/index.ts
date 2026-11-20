@@ -8,7 +8,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { loadConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
-import { resolveHelp, rewriteHelpArgs, wantsHelp } from "./commands/help";
+import { normalizeHelpArgs, resolveHelp, rewriteHelpArgs, wantsHelp } from "./commands/help";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -78,7 +78,7 @@ function stripOrgIdFlag(argv: string[]): { orgIdFlag: string | undefined; args: 
 
 const stripped = stripOrgIdFlag(process.argv.slice(2));
 const orgIdFlag = stripped.orgIdFlag;
-const args = rewriteHelpArgs(stripped.args);
+const args = normalizeHelpArgs(rewriteHelpArgs(stripped.args));
 const command = args[0];
 const subcommand = args[1];
 const rest = args.slice(1);

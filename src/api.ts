@@ -117,17 +117,36 @@ export async function api(
 export async function apiResult(
   path: string,
   options: { method?: string; body?: any } = {}
-): Promise<{ ok: true; data: any } | { ok: false; message: string }> {
+): Promise<
+  | { ok: true; data: any }
+  | { ok: false; message: string; /** true = no response, so the outcome is unknown */ transport: boolean }
+> {
   const { apiKey, baseUrl } = await config();
   const { method = "GET", body } = options;
-  const res = await fetch(`${baseUrl}${path}`, {
-    method,
-    headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) return { ok: false, message: formatApiError(res.status, await res.text()) };
-  return { ok: true, data: await res.json() };
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (err) {
+    return { ok: false, transport: true, message: err instanceof Error ? err.message : String(err) };
+  }
+  if (!res.ok) return { ok: false, transport: false, message: formatApiError(res.status, await res.text()) };
+  // A cut-off body can parse to null instead of throwing: either way the
+  // request may have been applied, so report it as unconfirmed.
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (data === null || data === undefined) {
+    return { ok: false, transport: true, message: "the response was cut off" };
+  }
+  return { ok: true, data };
 }
 
 /** The bastion base URL this invocation talks to (from `dillion auth`). */
