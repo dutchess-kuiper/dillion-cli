@@ -48,6 +48,8 @@ Commands:
 
   portal-add <link-id> [--clients <emails>] [--orgs <org-ids>] [--no-notify]
                                 Give existing portal clients / orgs access to a link
+    [--with-previews]           Needed when the link has source previews off: portal
+                                viewers always see them
   portal-list <link-id>         Show who can open a link on the portal, plus its portal URL
   portal-orgs <name> [--limit N] [--json]
                                 Look up existing client orgs by name; prints the org ids
@@ -292,7 +294,7 @@ async function shareLinksCreate(args: string[]) {
         method: "DELETE",
       });
       console.error(
-        outcome.transport
+        outcome.unconfirmed
           ? `Couldn't confirm the portal grant (${outcome.message}). Access may have been granted and invites sent.`
           : `Portal access was refused: ${outcome.message}\nNothing was granted and nobody was emailed.`,
       );
@@ -564,7 +566,7 @@ interface PortalGrants {
   notifyOrgErrors: string[];
 }
 
-type PortalGrantOutcome = PortalGrants | { ok: false; message: string; transport: boolean };
+type PortalGrantOutcome = PortalGrants | { ok: false; message: string; unconfirmed: boolean };
 
 /**
  * One server call. The server accepts EXISTING clients and orgs only, checks
@@ -582,7 +584,7 @@ async function grantPortalAccess(
   });
   if (!r.ok) return r;
   if (typeof r.data !== "object" || !Array.isArray(r.data.clients) || !Array.isArray(r.data.orgs)) {
-    return { ok: false, transport: true, message: "unexpected response" };
+    return { ok: false, unconfirmed: true, message: "unexpected response" };
   }
   return {
     ok: true,
@@ -637,10 +639,25 @@ async function shareLinksPortalAdd(args: string[]) {
     console.error(`Link ${link.id} is revoked; nobody can open it. Create a new link instead.`);
     process.exit(1);
   }
+  // Checked BEFORE granting: portal viewers always see source previews, so on
+  // a link that has them off, granting would show what the analyst hid.
+  const warnings: string[] = [];
+  if (link.allow_citation_excerpts === false) {
+    const msg =
+      "This link has source previews turned off, but portal viewers always see them.";
+    if (flags["with-previews"] === undefined) {
+      console.error(
+        `${msg}\nNothing was granted. To grant anyway, re-run with --with-previews; or turn previews ` +
+          `on for everyone with: dillion share-links update ${link.id} --allow-citations`,
+      );
+      process.exit(1);
+    }
+    warnings.push(`${msg} Granted anyway (--with-previews).`);
+  }
   const grants = await grantPortalAccess(link.id, audience, flags["no-notify"] === undefined);
   if (!grants.ok) {
     console.error(
-      grants.transport
+      grants.unconfirmed
         ? `Couldn't confirm the portal grant (${grants.message}). Check with: dillion share-links portal-list ${link.id}`
         : `Portal access was refused: ${grants.message}\nNothing was granted and nobody was emailed.`,
     );
@@ -648,16 +665,20 @@ async function shareLinksPortalAdd(args: string[]) {
   }
   const portalUrl = await portalUrlFor(link.project_id, link.id);
   if (flags.json !== undefined) {
-    console.log(JSON.stringify({ link_id: link.id, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs }, null, 2));
+    console.log(
+      JSON.stringify(
+        { link_id: link.id, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs, warnings },
+        null,
+        2,
+      ),
+    );
     return;
   }
   console.log("✓ Portal access updated");
   console.log(`  link:      ${link.id}  ${link.title}`);
   console.log(`  portal:    ${portalUrl}`);
   printPortalGrants(grants);
-  if (link.allow_citation_excerpts === false) {
-    console.log("  note:      source previews are off for /share viewers, but portal viewers always see them");
-  }
+  for (const w of warnings) console.log(`  warning:   ${w}`);
 }
 
 async function shareLinksPortalList(args: string[]) {

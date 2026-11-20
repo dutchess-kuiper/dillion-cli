@@ -1,6 +1,6 @@
 import { basename, dirname, join } from "path";
 import { mkdir } from "fs/promises";
-import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError, fetchOrExit } from "../api";
+import { api, apiUpload, buildHeaders, failWithApiError, formatApiError, isOrgScopeApiError, describeNetworkError } from "../api";
 import { getConfig } from "../config";
 import { waitForJobCompletion } from "../jobWait";
 import { requireProjectId, resolveProjectId } from "../projectContext";
@@ -344,11 +344,24 @@ async function fetchTextJob(options: {
   const url = new URL(`${baseUrl}/files/text/${options.jobId}`);
   if (options.projectId) url.searchParams.set("projectId", options.projectId);
 
-  const res = await fetchOrExit(url, {
-    headers: buildHeaders(apiKey, { Accept: "application/json" }),
-  });
+  // A network failure here is this file's error (the batch reports it and
+  // keeps going), not a reason to exit before the other files are reported.
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: buildHeaders(apiKey, { Accept: "application/json" }),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (err) {
+    throw new Error(describeNetworkError(err, String(url)));
+  }
 
-  const body = await res.text();
+  let body: string;
+  try {
+    body = await res.text();
+  } catch (err) {
+    throw new Error(`the response was cut off (${err instanceof Error ? err.message : String(err)})`);
+  }
   if (!res.ok) {
     if (res.status === 404 && body.includes("Cannot GET")) {
       throw new Error("Server does not support txt downloads yet.");

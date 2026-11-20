@@ -98,10 +98,15 @@ export function describeNetworkError(err: unknown, url: string): string {
   if (code === "ConnectionRefused" || code === "ECONNREFUSED") {
     return `Couldn't connect to ${host}: nothing is accepting connections there. Is the server up? (dillion auth status)`;
   }
+  if (code === "ECONNRESET" || /socket connection was closed/i.test(e?.message ?? "")) {
+    return `The connection to ${host} was closed before the response arrived. Try again, or check it with: dillion health`;
+  }
   if (/CERT|TLS|SSL/i.test(code) || /certificate/i.test(e?.message ?? "")) {
     return `Couldn't make a secure connection to ${host} (certificate problem).`;
   }
-  return `Couldn't reach ${host}${e?.message ? ` (${e.message})` : ""}. Check your connection, or run: dillion health`;
+  // Bun appends advice about its own fetch options; it means nothing to a user.
+  const detail = (e?.message ?? "").replace(/\s*For more information, pass `verbose: true`.*$/s, "").trim();
+  return `Couldn't reach ${host}${detail ? ` (${detail})` : ""}. Check your connection, or run: dillion health`;
 }
 
 /** `fetch` that prints describeNetworkError and exits 1 when no response arrives. */
@@ -160,7 +165,16 @@ export async function apiResult(
   options: { method?: string; body?: any } = {}
 ): Promise<
   | { ok: true; data: any }
-  | { ok: false; message: string; /** true = no response, so the outcome is unknown */ transport: boolean }
+  | {
+      ok: false;
+      message: string;
+      /**
+       * true = the request may have been applied: no response, a cut-off
+       * response, or a 5xx (the server or a proxy can fail after the work
+       * committed). false = a 4xx, which this API only returns before writing.
+       */
+      unconfirmed: boolean;
+    }
 > {
   const { apiKey, baseUrl } = await config();
   const { method = "GET", body } = options;
@@ -173,9 +187,21 @@ export async function apiResult(
       signal: AbortSignal.timeout(60_000),
     });
   } catch (err) {
-    return { ok: false, transport: true, message: describeNetworkError(err, `${baseUrl}${path}`) };
+    return { ok: false, unconfirmed: true, message: describeNetworkError(err, `${baseUrl}${path}`) };
   }
-  if (!res.ok) return { ok: false, transport: false, message: formatApiError(res.status, await res.text()) };
+  if (!res.ok) {
+    let errBody: string;
+    try {
+      errBody = await res.text();
+    } catch {
+      return { ok: false, unconfirmed: true, message: `HTTP ${res.status} (the response was cut off)` };
+    }
+    return {
+      ok: false,
+      unconfirmed: res.status >= 500,
+      message: errBody.trim() ? formatApiError(res.status, errBody) : `HTTP ${res.status} (no details)`,
+    };
+  }
   // A cut-off body can parse to null instead of throwing: either way the
   // request may have been applied, so report it as unconfirmed.
   let data: unknown;
@@ -185,7 +211,7 @@ export async function apiResult(
     data = null;
   }
   if (data === null || data === undefined) {
-    return { ok: false, transport: true, message: "the response was cut off" };
+    return { ok: false, unconfirmed: true, message: "the response was cut off" };
   }
   return { ok: true, data };
 }

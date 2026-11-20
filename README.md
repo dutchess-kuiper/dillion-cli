@@ -356,7 +356,7 @@ Portal URL format (printed by the commands above; override the origin with `DILL
 https://portal.dillion.ai/projects/<project-id>/bundles/<link-id>
 ```
 
-Portal viewers always see each report's latest version and its source previews, so `--versions` pins and `--no-citations` can't be combined with `--portal`, `--clients` or `--orgs`. If granting access fails during `create`, the new link is revoked (a revoked link opens for nobody) and the CLI says whether anything was granted or emailed.
+Portal viewers always see each report's latest version and its source previews, so `--versions` pins and `--no-citations` can't be combined with `--portal`, `--clients` or `--orgs`. On an existing link with source previews turned off, `portal-add` grants nothing unless you pass `--with-previews`. If granting access fails during `create`, the new link is revoked (a revoked link opens for nobody) and the CLI says whether anything was granted or emailed.
 
 **`--labels` and `--versions` alignment:** pipe-separated entries match `--reports` index-by-index. An empty entry means “use report title” (labels) or “always latest” (versions). Example: `--reports a,b,c --versions "2||1"` pins report A to v2, B to latest, C to v1.
 
