@@ -115,6 +115,7 @@ PORTAL LINKS (no password; clients sign in at portal.dillion.ai)
     --no-notify                           Don't email the clients or org members
   dillion share-links portal-add <link-id> --clients … --orgs …
                                           Give existing clients/orgs access to any link
+    --with-previews                       Needed on a link with source previews off
   dillion share-links portal-list <link-id>
                                           Portal URL, and who can open it
     Only EXISTING clients and orgs are accepted; invite new people from the VDR web app.

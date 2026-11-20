@@ -237,5 +237,9 @@ export function normalizeHelpArgs(args: string[]): string[] {
  */
 export function rewriteHelpArgs(args: string[]): string[] {
   if (args[0] !== "help" || args.length < 2 || args[1] === "skill") return args;
-  return [...args.slice(1), "--help"];
+  // Only what comes before `--` names the command; anything after it is data
+  // for that command and must not reach it (it would run instead of helping).
+  const rest = args.slice(1);
+  const end = rest.indexOf("--");
+  return [...(end === -1 ? rest : rest.slice(0, end)), "--help"];
 }
