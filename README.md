@@ -416,6 +416,8 @@ dillion jobs list -p <project-id> --json | jq '.jobs[].fileName'
 
 ## Errors
 
+`files download` keeps going when a file fails and downloads the rest, then exits 1 if any file failed (including a job id the server didn't return), and 0 only when every file was saved. With `--json`, each failed file carries its own `error`.
+
 When the server can't be reached (connection refused, unknown host, timeout, bad server URL) the CLI says which, in one line, and exits 1. Any other unexpected error is also one line; set `DILLION_DEBUG=1` to see the full stack trace.
 
 ## Update
