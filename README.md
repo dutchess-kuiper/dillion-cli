@@ -363,9 +363,12 @@ dillion filters <project-id>
 dillion health       # Check server status
 dillion update       # Update to latest version
 dillion --version    # Show version
-dillion help         # Show help
+dillion help         # Quick list of every command
+dillion <command> --help   # Help for one command (or: dillion help <command>)
 dillion docs         # Full command reference
 ```
+
+`--help` never runs a command: `dillion update --help` or `dillion org clear --help` only print help.
 
 ### Agent skill (`skill`)
 

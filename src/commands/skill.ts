@@ -45,10 +45,17 @@ const SKILL_ERRORS: Record<string, string> = {
 
 async function fetchSkill(): Promise<string> {
   const { apiKey } = await getConfig();
-  const res = await fetch(`${await apiBaseUrl()}/skills/dillion-cli`, {
-    headers: buildHeaders(apiKey),
-    signal: AbortSignal.timeout(30_000),
-  });
+  const baseUrl = await apiBaseUrl();
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}/skills/dillion-cli`, {
+      headers: buildHeaders(apiKey),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    console.error(`Couldn't reach ${baseUrl}. Check your connection, or run: dillion health`);
+    process.exit(1);
+  }
   const text = await res.text();
   if (res.ok) return text;
   let slug = "";
