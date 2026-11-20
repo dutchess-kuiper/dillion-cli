@@ -309,6 +309,37 @@ Counterparty URL format:
 https://vdr.dillion.ai/share/<slug>
 ```
 
+### Portal links (no password)
+
+A share link can also be opened on the client portal (`portal.dillion.ai`): the people and orgs you attach sign in there and see it, with no link password. `--portal` makes the link portal-only (no public `/share` URL at all).
+
+The CLI only attaches **existing** portal clients (exact email) and **existing** client orgs (exact name, or `org_…` id). It never creates new people or orgs — invite those from the VDR web app first. Client invites always email the person; org members are emailed unless you pass `--no-notify`.
+
+```sh
+# New portal-only link for an existing client and an existing org
+dillion share-links create \
+  -p <project-id> \
+  --title "Acme diligence pack" \
+  --reports <report-id-1>,<report-id-2> \
+  --portal \
+  --clients gordon@example.com \
+  --orgs "Acme Capital"
+
+# Give more existing clients/orgs access to any link (public or portal-only)
+dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs "Acme Capital"
+
+# Who can open it, and the portal URL to send
+dillion share-links portal-list <link-id>
+```
+
+Portal URL format (printed by the commands above; override the origin with `DILLION_PORTAL_URL`):
+
+```
+https://portal.dillion.ai/projects/<project-id>/bundles/<link-id>
+```
+
+Portal links always show each report's latest version, so `--versions` pins can't be combined with `--portal`, `--clients` or `--orgs`. If adding a client or org fails during `create`, the new link is revoked so nothing is half-shared.
+
 **`--labels` and `--versions` alignment:** pipe-separated entries match `--reports` index-by-index. An empty entry means “use report title” (labels) or “always latest” (versions). Example: `--reports a,b,c --versions "2||1"` pins report A to v2, B to latest, C to v1.
 
 **Defaults:** source-document preview (click-through citations) is **on** unless you pass `--no-citations`. Passwords must be **8+ characters**; expiry is **1–365 days** when set.

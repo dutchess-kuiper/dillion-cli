@@ -110,6 +110,31 @@ export async function api(
   return res.json();
 }
 
+/**
+ * Like `api()`, but returns failures instead of exiting, for callers that must
+ * clean up (e.g. revoke a half-built link) before reporting the error.
+ */
+export async function apiResult(
+  path: string,
+  options: { method?: string; body?: any } = {}
+): Promise<{ ok: true; data: any } | { ok: false; message: string }> {
+  const { apiKey, baseUrl } = await config();
+  const { method = "GET", body } = options;
+  const res = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!res.ok) return { ok: false, message: formatApiError(res.status, await res.text()) };
+  return { ok: true, data: await res.json() };
+}
+
+/** The bastion base URL this invocation talks to (from `dillion auth`). */
+export async function apiBaseUrl(): Promise<string> {
+  return (await config()).baseUrl;
+}
+
 /** POST multipart to bastion `/upload` (ingestion proxy). Field name: `file`. */
 export async function apiUpload(filePath: string, projectId: string): Promise<Record<string, unknown>> {
   const { apiKey, baseUrl } = await config();
