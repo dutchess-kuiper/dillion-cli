@@ -6,6 +6,7 @@ import {
   portalBaseUrl,
   portalBundleUrl,
   portalOnlyFlagConflicts,
+  formatOrgRows,
   type ClientOrgSummary,
   type ClientUserSuggestion,
 } from "../portal";
@@ -32,22 +33,26 @@ Commands:
     [--emails a@x.com,b@y.com]  Restrict to specific allowed emails
     [--json]                    Raw JSON output
 
-  create -p <pid> --title <t> --reports <ids> --portal --clients <emails> --orgs <names|ids>
+  create -p <pid> --title <t> --reports <ids> --portal --clients <emails> --orgs <org-ids>
                                 Create a PORTAL link (portal.dillion.ai): no password; the
                                 listed people/orgs open it after signing in to the portal
     --portal                    Portal-only: no public /share URL, no password
     [--clients a@x.com,b@y.com] Existing portal clients to give access (exact emails)
-    [--orgs "Acme Corp,org_…"]  Existing client orgs (exact name or org id; every member
-                                gets access)
+    [--orgs org_…,org_…]        Existing client org ids (find them with portal-orgs);
+                                every member gets access. An exact org name also works,
+                                but ids can't match the wrong org
     [--no-notify]               Don't email org members (client invites always email)
                                 At least one of --clients / --orgs is required. Only EXISTING
                                 clients and orgs are accepted — invite new people from the
                                 VDR web app. --clients/--orgs also work without --portal
                                 (link keeps its password-protected /share URL too).
 
-  portal-add <link-id> [--clients <emails>] [--orgs <names|ids>] [--no-notify]
+  portal-add <link-id> [--clients <emails>] [--orgs <org-ids>] [--no-notify]
                                 Give existing portal clients / orgs access to a link
   portal-list <link-id>         Show who can open a link on the portal, plus its portal URL
+  portal-orgs <name> [--limit N] [--json]
+                                Look up existing client orgs by name; prints the org ids
+                                to pass to --orgs
 
   list -p <pid>                 List share links for a project
   get <link-id>                 Show a share link and its items
@@ -94,6 +99,8 @@ export async function shareLinksCommand(args: string[]) {
       return shareLinksPortalAdd(rest);
     case "portal-list":
       return shareLinksPortalList(rest);
+    case "portal-orgs":
+      return shareLinksPortalOrgs(rest);
     default:
       console.error(`Unknown share-links subcommand: ${sub}`);
       console.error(SHARE_LINKS_HELP);
@@ -228,13 +235,13 @@ async function shareLinksCreate(args: string[]) {
       process.exit(1);
     }
     if (audience.emails.length === 0 && audience.orgs.length === 0) {
-      console.error("--portal needs at least one of --clients <emails> or --orgs <names|ids>");
+      console.error("--portal needs at least one of --clients <emails> or --orgs <org-ids>");
       process.exit(1);
     }
   } else if (flags.password === undefined) {
     console.error(
       "--password <pw> is required (8+ chars): share links must be password-protected.\n" +
-        "To skip the password, make a portal link instead: --portal --clients <emails> / --orgs <names>",
+        "To skip the password, make a portal link instead: --portal --clients <emails> / --orgs <org-ids>",
     );
     process.exit(1);
   }
@@ -649,7 +656,7 @@ async function shareLinksPortalAdd(args: string[]) {
   const audience = portalAudienceFlags(flags);
   if (!linkId || !audience.any) {
     console.error(
-      "Usage: dillion share-links portal-add <link-id> [--clients a@x.com,b@y.com] [--orgs \"Acme Corp,org_…\"] [--no-notify]\n" +
+      "Usage: dillion share-links portal-add <link-id> [--clients a@x.com,b@y.com] [--orgs org_…,org_…] [--no-notify]\n" +
         "  At least one of --clients / --orgs. Only existing portal clients and orgs are accepted.",
     );
     process.exit(1);
@@ -701,4 +708,37 @@ async function shareLinksPortalList(args: string[]) {
   }
   console.log(`  orgs (${liveOrgs.length}):`);
   for (const o of liveOrgs) console.log(`    ${o.name}  ${o.org_id}`);
+}
+
+async function shareLinksPortalOrgs(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const query = positional.join(" ").trim();
+  if (!query) {
+    console.error(
+      "Usage: dillion share-links portal-orgs <name> [--limit N] [--json]\n" +
+        "  Case-insensitive name search over existing client orgs; prints the org ids for --orgs.",
+    );
+    process.exit(1);
+  }
+  let limit = 20;
+  if (flags.limit !== undefined) {
+    limit = parseInt(String(flags.limit), 10);
+    if (Number.isNaN(limit) || limit < 1 || limit > 200) {
+      console.error("--limit must be a number from 1 to 200");
+      process.exit(1);
+    }
+  }
+  const orgs: ClientOrgSummary[] = await api(
+    `/client-orgs?q=${encodeURIComponent(query)}&limit=${limit}`,
+  );
+  if (flags.json !== undefined) {
+    console.log(JSON.stringify(orgs, null, 2));
+    return;
+  }
+  if (orgs.length === 0) {
+    console.log(`(no client orgs match "${query}")`);
+    return;
+  }
+  for (const row of formatOrgRows(orgs)) console.log(row);
+  if (orgs.length === limit) console.log(`(showing the first ${limit}; narrow the name or raise --limit)`);
 }

@@ -25,11 +25,15 @@ export interface ClientOrgSummary {
 
 export type Resolution<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/** WorkOS org ids: `org_` + a 26-char ULID. Anything else is treated as a name. */
-const WORKOS_ORG_ID = /^org_[0-9A-HJKMNP-TV-Z]{26}$/i;
+/**
+ * An `org_` token with no spaces is an id (WorkOS ids are `org_` + a ULID, but
+ * accept any such token so every id `portal-orgs` prints works). Anything else
+ * is treated as a name.
+ */
+const ORG_ID = /^org_[A-Za-z0-9_]+$/;
 
 export function looksLikeOrgId(s: string): boolean {
-  return WORKOS_ORG_ID.test(s.trim());
+  return ORG_ID.test(s.trim());
 }
 
 /** Pick the existing client whose email is exactly `email` from a search result. */
@@ -48,6 +52,17 @@ export function pickExistingClient(
   };
 }
 
+/** One line per org: id first (what --orgs should get), then name and disambiguators. */
+export function formatOrgRows(orgs: ClientOrgSummary[]): string[] {
+  return orgs.map(
+    (o) =>
+      `${o.org_id}  ${o.name}  (created ${o.created_at.slice(0, 10)}` +
+      (o.created_by_email ? ` by ${o.created_by_email}` : "") +
+      ")" +
+      (o.description ? `  — ${o.description}` : ""),
+  );
+}
+
 /** Pick the one existing client org whose name is exactly `name` (case-insensitive). */
 export function pickExistingOrg(
   name: string,
@@ -57,25 +72,18 @@ export function pickExistingOrg(
   const hits = results.filter((r) => r.name.trim().toLowerCase() === want);
   if (hits.length === 1) return { ok: true, value: hits[0]! };
   if (hits.length > 1) {
-    const rows = hits
-      .map(
-        (o) =>
-          `  ${o.org_id}  created ${o.created_at.slice(0, 10)}` +
-          (o.created_by_email ? ` by ${o.created_by_email}` : "") +
-          (o.description ? `  — ${o.description}` : ""),
-      )
-      .join("\n");
+    const rows = formatOrgRows(hits).map((r) => `  ${r}`).join("\n");
     return {
       ok: false,
       message: `${hits.length} client orgs are named "${name}". Pass the org id instead:\n${rows}`,
     };
   }
-  const near = results.slice(0, 5).map((o) => `  ${o.org_id}  ${o.name}`).join("\n");
+  const near = formatOrgRows(results.slice(0, 5)).map((r) => `  ${r}`).join("\n");
   return {
     ok: false,
     message:
       `No existing client org named "${name}". The CLI only adds existing orgs; create ` +
-      `new ones from the VDR web app.` +
+      `new ones from the VDR web app. Find ids with: dillion share-links portal-orgs <name>` +
       (near ? `\nDid you mean:\n${near}` : ""),
   };
 }
