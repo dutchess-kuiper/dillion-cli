@@ -2,7 +2,7 @@ import { api } from "../api";
 import { loadConfig, saveConfig } from "../config";
 import { parseFlags } from "../flags";
 
-const ORG_HELP = `
+export const ORG_HELP = `
 Usage: dillion org <command>
 
   list               List organizations you belong to (marks the active one)

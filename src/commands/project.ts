@@ -1,7 +1,7 @@
 import { loadConfig, saveConfig, type Config } from "../config";
 import { parseFlags } from "../flags";
 
-const PROJECT_HELP = `
+export const PROJECT_HELP = `
 Usage: dillion project <command>
 
   use <project-id>   Save a default project (used when -p is omitted)

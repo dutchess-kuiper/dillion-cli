@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from "fs/promises";
+import { lookup } from "dns/promises";
+import { isIP } from "net";
 import { basename, dirname } from "path";
 import { getConfig } from "./config";
 import { getOrgOverride } from "./orgContext";
@@ -73,6 +75,77 @@ export function formatApiError(status: number, body: string): string {
   return Object.hasOwn(ORG_SCOPE_MESSAGES, msg) ? ORG_SCOPE_MESSAGES[msg]! : `Error ${status}: ${msg}`;
 }
 
+/**
+ * Explain a failed fetch (no HTTP response at all) in one line, without a
+ * stack trace. Pure: the caller decides whether to exit.
+ */
+export function describeNetworkError(err: unknown, url: string): string {
+  let host = url;
+  try {
+    host = new URL(url).origin;
+  } catch {
+    // keep the raw value
+  }
+  const e = err as { name?: string; code?: string; message?: string } | undefined;
+  const code = e?.code ?? "";
+  if (e?.name === "TimeoutError" || e?.name === "AbortError") {
+    return `${host} didn't respond in time. Try again, or check it with: dillion health`;
+  }
+  if (code === "ERR_INVALID_URL") {
+    return "The saved server URL isn't valid. See it with: dillion auth status, fix it with: dillion auth <api-key> --url=<url>";
+  }
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") {
+    return `Couldn't find ${host}. Check your internet connection and the server URL (dillion auth status).`;
+  }
+  if (code === "ConnectionRefused" || code === "ECONNREFUSED") {
+    return `Couldn't connect to ${host}: nothing is accepting connections there. Is the server up? (dillion auth status)`;
+  }
+  if (code === "ECONNRESET" || /socket connection was closed/i.test(e?.message ?? "")) {
+    return `The connection to ${host} was closed before the response arrived. Try again, or check it with: dillion health`;
+  }
+  if (/CERT|TLS|SSL/i.test(code) || /certificate/i.test(e?.message ?? "")) {
+    return `Couldn't make a secure connection to ${host} (certificate problem).`;
+  }
+  // Bun appends advice about its own fetch options; it means nothing to a user.
+  const detail = (e?.message ?? "").replace(/\s*For more information, pass `verbose: true`.*$/s, "").trim();
+  return `Couldn't reach ${host}${detail ? ` (${detail})` : ""}. Check your connection, or run: dillion health`;
+}
+
+/**
+ * describeNetworkError, after checking DNS when the error says "refused": some
+ * Bun versions (1.3) report an unknown host as ConnectionRefused, which would
+ * wrongly tell the user the server is down.
+ */
+export async function explainNetworkError(err: unknown, url: string): Promise<string> {
+  const code = (err as { code?: string } | undefined)?.code;
+  if (code === "ConnectionRefused" || code === "ECONNREFUSED") {
+    let hostname = "";
+    try {
+      hostname = new URL(url).hostname.replace(/^\[|\]$/g, "");
+    } catch {
+      // not a URL: fall through
+    }
+    if (hostname && !isIP(hostname) && hostname !== "localhost" && !hostname.endsWith(".localhost")) {
+      const resolves = await Promise.race([
+        lookup(hostname).then(() => true, () => false),
+        new Promise<boolean>((r) => setTimeout(() => r(true), 3000)),
+      ]);
+      if (!resolves) return describeNetworkError({ code: "ENOTFOUND" }, url);
+    }
+  }
+  return describeNetworkError(err, url);
+}
+
+/** `fetch` that prints explainNetworkError and exits 1 when no response arrives. */
+export async function fetchOrExit(url: string | URL, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    console.error(await explainNetworkError(err, String(url)));
+    process.exit(1);
+  }
+}
+
 /** Shared terminal error path for all fetch sites: print the message and exit 1. */
 export function failWithApiError(status: number, body: string): never {
   console.error(formatApiError(status, body));
@@ -95,7 +168,7 @@ export async function api(
   const { apiKey, baseUrl } = await config();
   const { method = "GET", body, raw = false } = options;
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method,
     headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
     body: body ? JSON.stringify(body) : undefined,
@@ -108,6 +181,71 @@ export async function api(
 
   if (raw) return res;
   return res.json();
+}
+
+/**
+ * Like `api()`, but returns failures instead of exiting, for callers that must
+ * clean up (e.g. revoke a half-built link) before reporting the error.
+ */
+export async function apiResult(
+  path: string,
+  options: { method?: string; body?: any } = {}
+): Promise<
+  | { ok: true; data: any }
+  | {
+      ok: false;
+      message: string;
+      /**
+       * true = the request may have been applied: no response, a cut-off
+       * response, or a 5xx (the server or a proxy can fail after the work
+       * committed). false = a 4xx, which this API only returns before writing.
+       */
+      unconfirmed: boolean;
+    }
+> {
+  const { apiKey, baseUrl } = await config();
+  const { method = "GET", body } = options;
+  let res: Response;
+  try {
+    res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: buildHeaders(apiKey, { "Content-Type": "application/json" }),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (err) {
+    return { ok: false, unconfirmed: true, message: await explainNetworkError(err, `${baseUrl}${path}`) };
+  }
+  if (!res.ok) {
+    let errBody: string;
+    try {
+      errBody = await res.text();
+    } catch {
+      return { ok: false, unconfirmed: true, message: `HTTP ${res.status} (the response was cut off)` };
+    }
+    return {
+      ok: false,
+      unconfirmed: res.status >= 500,
+      message: errBody.trim() ? formatApiError(res.status, errBody) : `HTTP ${res.status} (no details)`,
+    };
+  }
+  // A cut-off body can parse to null instead of throwing: either way the
+  // request may have been applied, so report it as unconfirmed.
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (data === null || data === undefined) {
+    return { ok: false, unconfirmed: true, message: "the response was cut off" };
+  }
+  return { ok: true, data };
+}
+
+/** The bastion base URL this invocation talks to (from `dillion auth`). */
+export async function apiBaseUrl(): Promise<string> {
+  return (await config()).baseUrl;
 }
 
 /** POST multipart to bastion `/upload` (ingestion proxy). Field name: `file`. */
@@ -125,7 +263,7 @@ export async function apiUpload(filePath: string, projectId: string): Promise<Re
   formData.append("file", file, name);
 
   const url = `${baseUrl}/upload?project_id=${encodeURIComponent(projectId)}`;
-  const res = await fetch(url, {
+  const res = await fetchOrExit(url, {
     method: "POST",
     headers: buildHeaders(apiKey),
     body: formData,
@@ -167,7 +305,7 @@ export async function apiUploadMultipart(
     if (v !== undefined && v !== null) formData.append(k, v);
   }
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method: options.method ?? "POST",
     headers: buildHeaders(apiKey),
     body: formData,
@@ -183,7 +321,7 @@ export async function apiUploadMultipart(
 /** GET binary from bastion (e.g. research report source zip). Writes to `outPath`. */
 export async function apiDownloadToFile(path: string, outPath: string): Promise<void> {
   const { apiKey, baseUrl } = await config();
-  const res = await fetch(`${baseUrl}${path}`, {
+  const res = await fetchOrExit(`${baseUrl}${path}`, {
     method: "GET",
     headers: buildHeaders(apiKey),
   });

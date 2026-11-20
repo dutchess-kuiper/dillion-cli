@@ -309,6 +309,40 @@ Counterparty URL format:
 https://vdr.dillion.ai/share/<slug>
 ```
 
+### Portal links (no password)
+
+A share link can also be opened on the client portal (`portal.dillion.ai`): the people and orgs you attach sign in there and see it, with no link password. `--portal` makes the link portal-only (no public `/share` URL at all).
+
+The CLI only attaches **existing** portal clients (exact email) and **existing** client orgs. `--orgs` takes org **ids** (`org_…`), never names, because names aren't unique: look the id up with `portal-orgs` first. The server checks everything before granting anything and grants it all at once, so an unknown email or org id means nothing was granted and nobody was emailed. It never creates new people or orgs — invite those from the VDR web app first. Newly added clients and org members are emailed unless you pass `--no-notify`.
+
+```sh
+# Find the org id (name search; prints id, name, created date/by, description)
+dillion share-links portal-orgs "Acme"
+
+# New portal-only link for an existing client and an existing org
+dillion share-links create \
+  -p <project-id> \
+  --title "Acme diligence pack" \
+  --reports <report-id-1>,<report-id-2> \
+  --portal \
+  --clients client@example.com \
+  --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
+
+# Give more existing clients/orgs access to any link (public or portal-only)
+dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
+
+# Who can open it, and the portal URL to send
+dillion share-links portal-list <link-id>
+```
+
+Portal URL format (printed by the commands above; override the origin with `DILLION_PORTAL_URL`):
+
+```
+https://portal.dillion.ai/projects/<project-id>/bundles/<link-id>
+```
+
+Portal viewers always see each report's latest version and its source previews, so `--versions` pins and `--no-citations` can't be combined with `--portal`, `--clients` or `--orgs`. On an existing link with source previews turned off, `portal-add` grants nothing unless you pass `--with-previews`. If granting access fails during `create`, the new link is revoked (a revoked link opens for nobody) and the CLI says whether anything was granted or emailed.
+
 **`--labels` and `--versions` alignment:** pipe-separated entries match `--reports` index-by-index. An empty entry means “use report title” (labels) or “always latest” (versions). Example: `--reports a,b,c --versions "2||1"` pins report A to v2, B to latest, C to v1.
 
 **Defaults:** source-document preview (click-through citations) is **on** unless you pass `--no-citations`. Passwords must be **8+ characters**; expiry is **1–365 days** when set.
@@ -329,7 +363,21 @@ dillion filters <project-id>
 dillion health       # Check server status
 dillion update       # Update to latest version
 dillion --version    # Show version
-dillion help         # Show help
+dillion help         # Quick list of every command
+dillion <command> --help   # Help for one command (or: dillion help <command>)
+dillion docs         # Full command reference
+```
+
+`--help` never runs a command: `dillion update --help` or `dillion org clear --help` only print help.
+
+### Agent skill (`skill`)
+
+Prints the **dillion-cli agent skill**: the full guide (every command, the publish/share rules, portal links) that Claude Code uses when it drives this CLI. It's fetched from your Dillion server, so log in first with `dillion auth`.
+
+```sh
+dillion skill                                               # print it (Markdown)
+dillion help skill                                          # same
+dillion skill --out ~/.claude/skills/dillion-cli/SKILL.md   # install it as a personal Claude Code skill
 ```
 
 ## Flags
@@ -350,6 +398,12 @@ All commands support `--json` for raw JSON output, useful for piping:
 ```sh
 dillion jobs list -p <project-id> --json | jq '.jobs[].fileName'
 ```
+
+## Errors
+
+`files download` keeps going when a file fails and downloads the rest, then exits 1 if any file failed (including a job id the server didn't return), and 0 only when every file was saved. With `--json`, each failed file carries its own `error`.
+
+When the server can't be reached (connection refused, unknown host, timeout, bad server URL) the CLI says which, in one line, and exits 1. Any other unexpected error is also one line; set `DILLION_DEBUG=1` to see the full stack trace.
 
 ## Update
 
