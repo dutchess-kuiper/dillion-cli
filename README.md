@@ -364,6 +364,17 @@ dillion health       # Check server status
 dillion update       # Update to latest version
 dillion --version    # Show version
 dillion help         # Show help
+dillion docs         # Full command reference
+```
+
+### Agent skill (`skill`)
+
+Prints the **dillion-cli agent skill**: the full guide (every command, the publish/share rules, portal links) that Claude Code uses when it drives this CLI. It's fetched from your Dillion server, so log in first with `dillion auth`.
+
+```sh
+dillion skill                                               # print it (Markdown)
+dillion help skill                                          # same
+dillion skill --out ~/.claude/skills/dillion-cli/SKILL.md   # install it as a personal Claude Code skill
 ```
 
 ## Flags

@@ -139,6 +139,11 @@ Commands:
   share-links portal-list <id> Show a link's portal URL and who can open it
   share-links portal-orgs <q>  Look up client org ids by name (for --orgs)
 
+Help:
+  docs                         Full command reference
+  skill                        Print the dillion-cli agent skill (full guide; --out <path> to save)
+  help skill                   Same as skill
+
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
   --org-id <org_...>   Act in this organization for one command (overrides org use)
@@ -171,6 +176,10 @@ async function applyOrgOverride(flag: string | undefined) {
 }
 
 async function main() {
+  if (command === "help" && subcommand === "skill") {
+    const { skillCommand } = await import("./commands/skill");
+    return skillCommand(subrest);
+  }
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP.trim());
     process.exit(0);
@@ -188,6 +197,10 @@ async function main() {
       const { authCommand, authStatusCommand } = await import("./commands/auth");
       if (subcommand === "status") return authStatusCommand(subrest);
       return authCommand(rest);
+    }
+    case "skill": {
+      const { skillCommand } = await import("./commands/skill");
+      return skillCommand(rest);
     }
     case "docs": {
       const { docsCommand } = await import("./commands/docs");
