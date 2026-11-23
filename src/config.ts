@@ -76,6 +76,29 @@ export function resolveConfig(
   };
 }
 
+/**
+ * The server an env key talks to when it differs from the saved login's, else null. Saving a
+ * default (`org use`, `project use`) then would write that server's id into the saved login.
+ */
+export function envServerMismatch(
+  file: Config,
+  env: Record<string, string | undefined>
+): string | null {
+  const r = resolveConfig(file, env);
+  if (r?.source !== "env") return null;
+  return trimSlash(file.baseUrl) === r.config.baseUrl ? null : r.config.baseUrl;
+}
+
+/** Exit before `org use` / `project use` saves an id discovered on a server other than the saved one. */
+export function exitIfEnvServerMismatch(file: Config, perCommandFlag: string): void {
+  const other = envServerMismatch(file, process.env);
+  if (!other) return;
+  console.error(
+    `${ENV_API_KEY} is talking to ${other}, not the saved server ${file.baseUrl}, so this won't be saved as a default. Pass ${perCommandFlag} per command instead.`
+  );
+  process.exit(1);
+}
+
 /** Stored config with env credentials applied, plus where the key came from. */
 export async function loadEffectiveConfig(): Promise<{ config: Config; source: KeySource } | null> {
   return resolveConfig(await loadConfig(), process.env);

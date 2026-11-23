@@ -1,4 +1,10 @@
-import { loadConfig, saveConfig, exitNoConfigFile, type Config } from "../config";
+import {
+  loadConfig,
+  saveConfig,
+  exitNoConfigFile,
+  exitIfEnvServerMismatch,
+  type Config,
+} from "../config";
 import { parseFlags } from "../flags";
 
 const PROJECT_HELP = `
@@ -27,6 +33,8 @@ export async function projectUseCommand(args: string[]) {
 
   const cfg = await loadConfig();
   if (!cfg) exitNoConfigFile("-p/--project");
+
+  exitIfEnvServerMismatch(cfg, "-p/--project");
 
   await saveConfig(mergeProject(cfg, id));
   console.log(`Default project set to ${id}`);

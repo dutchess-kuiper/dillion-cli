@@ -1,5 +1,11 @@
 import { api } from "../api";
-import { loadConfig, loadEffectiveConfig, saveConfig, exitNoConfigFile } from "../config";
+import {
+  loadConfig,
+  loadEffectiveConfig,
+  saveConfig,
+  exitNoConfigFile,
+  exitIfEnvServerMismatch,
+} from "../config";
 import { parseFlags } from "../flags";
 
 const ORG_HELP = `
@@ -96,6 +102,8 @@ export async function orgUseCommand(args: string[]) {
 
   const cfg = await loadConfig();
   if (!cfg) exitNoConfigFile("--org-id");
+
+  exitIfEnvServerMismatch(cfg, "--org-id");
 
   const orgs = await fetchOrgs();
   const result = resolveOrgSelector(orgs, selector);
