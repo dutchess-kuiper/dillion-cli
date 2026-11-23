@@ -6,6 +6,7 @@ SETUP
   dillion auth <api-key>                  Authenticate with your API key
   dillion auth <api-key> --url=<url>      Use a custom server URL
   dillion auth status [--json]            Show server, masked key, org, project; check the key
+  DILLION_API_KEY=dil_… dillion <command> Use a key from the environment instead of the saved one
 
 SEARCH
   dillion search <query> -p <pid>         Hybrid search across document chunks

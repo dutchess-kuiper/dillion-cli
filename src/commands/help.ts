@@ -87,8 +87,11 @@ Usage: dillion auth <api-key> [--url=https://...]
 
   <api-key>          Save your dil_… API key (checked against the server first)
   --url=<url>        Use a different server (default: https://bastion.dillion.ai)
-  status             Show the saved server, masked key, org and project, and
+  status             Show the server, masked key, org and project in use, and
                      whether the key is still valid
+
+  DILLION_API_KEY, when set, is used instead of the saved key; DILLION_API_URL
+  optionally picks its server.
 `,
   projects: `
 Usage: dillion projects <command> [options]
