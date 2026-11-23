@@ -634,6 +634,13 @@ async function shareLinksPortalAdd(args: string[]) {
     );
     process.exit(1);
   }
+  if (flags["no-citations"] !== undefined) {
+    console.error(
+      "--no-citations can't be combined with portal access: portal viewers always see source previews.\n" +
+        "Nothing was granted.",
+    );
+    process.exit(1);
+  }
   const link = await api(`/share-links/${encodeURIComponent(linkId)}`);
   if (link.revoked_at) {
     console.error(`Link ${link.id} is revoked; nobody can open it. Create a new link instead.`);
