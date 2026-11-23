@@ -33,7 +33,7 @@ export DILLION_API_KEY=dil_...
 export DILLION_API_URL=http://localhost:3100   # optional; only read with DILLION_API_KEY. Default: the saved server, else https://bastion.dillion.ai
 ```
 
-Saved defaults (`org use`, `project use`) still apply with an env key. With no config file at all, pass `--org-id` and `-p` per command.
+Saved defaults (`org use`, `project use`) still apply with an env key when it talks to the saved server. Against any other server, or with no config file at all, pass `--org-id` and `-p` per command.
 
 Check which key is in use and whether it still works:
 
