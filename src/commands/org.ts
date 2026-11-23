@@ -1,5 +1,5 @@
 import { api } from "../api";
-import { loadConfig, saveConfig, exitNoConfigFile } from "../config";
+import { loadConfig, loadEffectiveConfig, saveConfig, exitNoConfigFile } from "../config";
 import { parseFlags } from "../flags";
 
 const ORG_HELP = `
@@ -56,7 +56,7 @@ export async function orgListCommand(args: string[]) {
   }
 
   const json = flags.json !== undefined;
-  const cfg = await loadConfig();
+  const cfg = (await loadEffectiveConfig())?.config;
   const orgs = await fetchOrgs();
 
   if (json) {

@@ -1,4 +1,4 @@
-import { loadConfig } from "./config";
+import { loadEffectiveConfig } from "./config";
 
 /**
  * Resolve project id: explicit -p/--project, else optional positional, else saved default from config.
@@ -11,7 +11,7 @@ export async function resolveProjectId(
   const fromFlag = flags.project || flags.p;
   if (fromPos) return fromPos;
   if (fromFlag) return fromFlag;
-  const cfg = await loadConfig();
+  const cfg = (await loadEffectiveConfig())?.config;
   return cfg?.projectId?.trim() || undefined;
 }
 

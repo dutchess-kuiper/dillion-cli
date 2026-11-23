@@ -45,11 +45,15 @@ export function envApiKey(env: Record<string, string | undefined> = process.env)
   return env[ENV_API_KEY]?.trim() || undefined;
 }
 
+const trimSlash = (u: string) => u.replace(/\/+$/, "");
+
 /**
  * Overlay env credentials on the stored config. Pure so precedence is unit-testable.
  *
  * - DILLION_API_KEY set -> it replaces the stored key. The server is DILLION_API_URL, else the
- *   stored server, else the default. Saved org/project defaults still apply.
+ *   stored server, else the default. The saved org/project defaults carry over only when that
+ *   server is the saved one: they belong to the saved login, and another server would get ids it
+ *   doesn't know (pass --org-id / -p there instead).
  * - DILLION_API_KEY unset -> the stored config as is (DILLION_API_URL is ignored, so a stray
  *   URL never redirects a stored key to another server).
  */
@@ -59,9 +63,17 @@ export function resolveConfig(
 ): { config: Config; source: KeySource } | null {
   const apiKey = envApiKey(env);
   if (!apiKey) return file ? { config: file, source: "file" } : null;
-  const baseUrl =
-    env[ENV_API_URL]?.trim().replace(/\/+$/, "") || file?.baseUrl || DEFAULT_BASE_URL;
-  return { config: { ...file, apiKey, baseUrl }, source: "env" };
+  const baseUrl = trimSlash(env[ENV_API_URL]?.trim() || file?.baseUrl || DEFAULT_BASE_URL);
+  const sameServer = !!file && trimSlash(file.baseUrl) === baseUrl;
+  return {
+    config: {
+      apiKey,
+      baseUrl,
+      ...(sameServer && file.orgId ? { orgId: file.orgId } : {}),
+      ...(sameServer && file.projectId ? { projectId: file.projectId } : {}),
+    },
+    source: "env",
+  };
 }
 
 /** Stored config with env credentials applied, plus where the key came from. */

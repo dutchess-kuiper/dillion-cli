@@ -6,7 +6,7 @@ const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v
 
 import { homedir } from "os";
 import { join } from "path";
-import { loadConfig } from "./config";
+import { loadEffectiveConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
@@ -166,7 +166,7 @@ async function applyOrgOverride(flag: string | undefined) {
     );
     process.exit(1);
   }
-  const cfg = await loadConfig();
+  const cfg = (await loadEffectiveConfig())?.config;
   setOrgOverride(resolveOrgOverride(flagVal, cfg?.orgId));
 }
 

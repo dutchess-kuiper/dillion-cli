@@ -34,7 +34,9 @@ export function buildAuthOutcome(
   server: string,
   orgs: OrgEntry[],
   previous: Config | null,
-  serverExplicit: boolean
+  serverExplicit: boolean,
+  /** DILLION_API_KEY is set, so it (not the key being saved) is what later commands use. */
+  envKeySet = false
 ): AuthOutcome {
   const config: Config = {
     apiKey,
@@ -63,6 +65,12 @@ export function buildAuthOutcome(
     );
   } else {
     lines.push("Key is valid but you belong to no organization; contact your admin.");
+  }
+
+  if (envKeySet) {
+    lines.push(
+      `Note: ${ENV_API_KEY} is set in this shell and overrides the saved key. Unset it to use the key you just saved.`
+    );
   }
 
   return { config, lines };
@@ -143,15 +151,17 @@ export async function authCommand(args: string[]) {
   mkdirSync(CONFIG_DIR, { recursive: true });
 
   const previous = await loadConfig();
-  const { config, lines } = buildAuthOutcome(apiKey, server, orgs, previous, !!baseUrl);
+  const { config, lines } = buildAuthOutcome(
+    apiKey,
+    server,
+    orgs,
+    previous,
+    !!baseUrl,
+    !!envApiKey()
+  );
   await saveConfig(config);
 
   for (const line of lines) console.log(line);
-  if (envApiKey()) {
-    console.log(
-      `Note: ${ENV_API_KEY} is set in this shell and overrides the saved key. Unset it to use the key you just saved.`
-    );
-  }
 }
 
 /** Whether a first arg to `dillion auth` is a credential rather than a mistyped subcommand. */
@@ -229,11 +239,14 @@ export function buildAuthStatusReport(
       ? check.orgs.find((o) => o.id === config.orgId)?.name ?? null
       : null;
 
+  // With an env key, an org/project shown here was carried over from the saved login.
+  const saved = source === "env" ? " (saved default)" : "";
+
   const lines: string[] = [
     `Server:   ${config.baseUrl}`,
     `API key:  ${maskApiKey(config.apiKey)}${source === "env" ? ` (from ${ENV_API_KEY})` : ""}`,
-    `Org:      ${config.orgId ? (orgName ? `${orgName} (${config.orgId})` : config.orgId) : "(none selected)"}`,
-    `Project:  ${config.projectId ?? "(none)"}`,
+    `Org:      ${config.orgId ? `${orgName ? `${orgName} (${config.orgId})` : config.orgId}${saved}` : "(none selected)"}`,
+    `Project:  ${config.projectId ? `${config.projectId}${saved}` : "(none)"}`,
   ];
 
   let keyStatus: AuthStatusReport["data"]["keyStatus"] = "unverified";
