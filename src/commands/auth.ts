@@ -1,4 +1,14 @@
-import { loadConfig, saveConfig, CONFIG_DIR, type Config } from "../config";
+import {
+  loadConfig,
+  loadEffectiveConfig,
+  saveConfig,
+  envApiKey,
+  CONFIG_DIR,
+  DEFAULT_BASE_URL,
+  ENV_API_KEY,
+  type Config,
+  type KeySource,
+} from "../config";
 import { mkdirSync } from "fs";
 import { parseFlags } from "../flags";
 import type { OrgEntry } from "./org";
@@ -94,7 +104,7 @@ export async function authCommand(args: string[]) {
     process.exit(1);
   }
 
-  const server = baseUrl || "https://bastion.dillion.ai";
+  const server = baseUrl || DEFAULT_BASE_URL;
 
   // Validate the key against a direct (pre-org-selection) route and learn the memberships.
   const res = await fetch(`${server}/orgs`, {
@@ -137,6 +147,11 @@ export async function authCommand(args: string[]) {
   await saveConfig(config);
 
   for (const line of lines) console.log(line);
+  if (envApiKey()) {
+    console.log(
+      `Note: ${ENV_API_KEY} is set in this shell and overrides the saved key. Unset it to use the key you just saved.`
+    );
+  }
 }
 
 /** Whether a first arg to `dillion auth` is a credential rather than a mistyped subcommand. */
@@ -162,8 +177,10 @@ export type KeyCheck =
 export interface AuthStatusReport {
   /** Machine-readable shape for `--json`. */
   data: {
-    /** Whether a config file with a key is present — NOT whether the key works (see keyStatus). */
+    /** Whether a key is available (config file or env) — NOT whether the key works (see keyStatus). */
     configured: boolean;
+    /** Where the key came from: "env" (DILLION_API_KEY) or "file" (`dillion auth`); null when none. */
+    keySource: KeySource | null;
     server: string | null;
     apiKey: string | null;
     orgId: string | null;
@@ -186,12 +203,14 @@ export interface AuthStatusReport {
  */
 export function buildAuthStatusReport(
   config: Config | null,
-  check: KeyCheck | null
+  check: KeyCheck | null,
+  source: KeySource = "file"
 ): AuthStatusReport {
   if (!config) {
     return {
       data: {
         configured: false,
+        keySource: null,
         server: null,
         apiKey: null,
         orgId: null,
@@ -199,7 +218,7 @@ export function buildAuthStatusReport(
         projectId: null,
         keyStatus: "unauthenticated",
       },
-      lines: ["Not authenticated. Run: dillion auth <api-key>"],
+      lines: [`Not authenticated. Run: dillion auth <api-key>  (or set ${ENV_API_KEY})`],
       exitCode: 1,
     };
   }
@@ -212,7 +231,7 @@ export function buildAuthStatusReport(
 
   const lines: string[] = [
     `Server:   ${config.baseUrl}`,
-    `API key:  ${maskApiKey(config.apiKey)}`,
+    `API key:  ${maskApiKey(config.apiKey)}${source === "env" ? ` (from ${ENV_API_KEY})` : ""}`,
     `Org:      ${config.orgId ? (orgName ? `${orgName} (${config.orgId})` : config.orgId) : "(none selected)"}`,
     `Project:  ${config.projectId ?? "(none)"}`,
   ];
@@ -227,7 +246,11 @@ export function buildAuthStatusReport(
     case "invalid":
       keyStatus = "invalid";
       exitCode = 1;
-      lines.push("Key status: INVALID — re-authenticate with: dillion auth <api-key>");
+      lines.push(
+        source === "env"
+          ? `Key status: INVALID — check ${ENV_API_KEY}`
+          : "Key status: INVALID — re-authenticate with: dillion auth <api-key>"
+      );
       break;
     case "server-error":
       lines.push(`Key status: could not verify (server error ${check.status})`);
@@ -248,6 +271,7 @@ export function buildAuthStatusReport(
   return {
     data: {
       configured: true,
+      keySource: source,
       server: config.baseUrl,
       apiKey: maskApiKey(config.apiKey),
       orgId: config.orgId ?? null,
@@ -312,14 +336,15 @@ export async function authStatusCommand(args: string[]) {
   if (flags.help === "" || flags.h === "") {
     console.log(
       "Usage: dillion auth status [--json]\n\n" +
-        "Show the stored server, API key, org, and project, then validate the key against the server."
+        "Show the server, API key, org, and project in use, then validate the key against the server.\n" +
+        `${ENV_API_KEY} (with optional DILLION_API_URL), when set, overrides the stored key.`
     );
     return;
   }
 
-  const config = await loadConfig();
-  const check = config ? await checkStoredKey(config) : null;
-  const report = buildAuthStatusReport(config, check);
+  const resolved = await loadEffectiveConfig();
+  const check = resolved ? await checkStoredKey(resolved.config) : null;
+  const report = buildAuthStatusReport(resolved?.config ?? null, check, resolved?.source);
 
   if (flags.json !== undefined) {
     console.log(JSON.stringify(report.data, null, 2));

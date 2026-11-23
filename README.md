@@ -8,6 +8,12 @@ Command-line interface for the Dillion Bastion API.
 curl -fsSL https://raw.githubusercontent.com/dutchess-kuiper/dillion-cli/main/install.sh | bash
 ```
 
+Installs to `/usr/local/bin` (asks for sudo if that folder isn't writable). If `dillion` is already on your PATH, the installer and `dillion update` replace that copy in its folder instead. To choose the folder, set `INSTALL_DIR`:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/dutchess-kuiper/dillion-cli/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+```
+
 ## Setup
 
 ```sh
@@ -20,10 +26,19 @@ By default connects to `https://bastion.dillion.ai`. To use a different server:
 dillion auth <your-api-key> --url=http://localhost:3100
 ```
 
-Check what's stored and whether the key still works:
+Or skip the config file and pass the key through the environment (CI, containers, agents). When `DILLION_API_KEY` is set it is used instead of the saved key; when it is unset the CLI uses the key saved by `dillion auth`:
 
 ```sh
-dillion auth status          # server, masked key, org, project + live validation
+export DILLION_API_KEY=dil_...
+export DILLION_API_URL=http://localhost:3100   # optional; only read with DILLION_API_KEY. Default: the saved server, else https://bastion.dillion.ai
+```
+
+Saved defaults (`org use`, `project use`) still apply with an env key. With no config file at all, pass `--org-id` and `-p` per command.
+
+Check which key is in use and whether it still works:
+
+```sh
+dillion auth status          # server, masked key (and whether it came from DILLION_API_KEY), org, project + live validation
 dillion auth status --json   # machine-readable; exit 0 = valid, 1 = invalid/not authenticated
 ```
 
@@ -360,7 +375,7 @@ dillion update
 ## Uninstall
 
 ```sh
-sudo rm /usr/local/bin/dillion
+rm "$(command -v dillion)"    # prefix with sudo if it is in /usr/local/bin
 rm -rf ~/.config/dillion
 ```
 

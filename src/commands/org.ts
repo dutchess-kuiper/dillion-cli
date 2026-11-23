@@ -1,5 +1,5 @@
 import { api } from "../api";
-import { loadConfig, saveConfig } from "../config";
+import { loadConfig, saveConfig, exitNoConfigFile } from "../config";
 import { parseFlags } from "../flags";
 
 const ORG_HELP = `
@@ -95,10 +95,7 @@ export async function orgUseCommand(args: string[]) {
   }
 
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("--org-id");
 
   const orgs = await fetchOrgs();
   const result = resolveOrgSelector(orgs, selector);
@@ -120,10 +117,7 @@ export async function orgUseCommand(args: string[]) {
 
 export async function orgShowCommand() {
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("--org-id");
   if (cfg.orgId) {
     console.log(cfg.orgId);
   } else {
@@ -133,10 +127,7 @@ export async function orgShowCommand() {
 
 export async function orgClearCommand() {
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("--org-id");
   const { orgId, ...rest } = cfg;
   await saveConfig(rest);
   console.log("Active organization cleared.");

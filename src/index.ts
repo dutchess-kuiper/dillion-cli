@@ -88,7 +88,7 @@ Usage: dillion <command> [options]
 
 Commands:
   auth <api-key> [--url=...]   Save API credentials
-  auth status [--json]         Show stored credentials and validate the key
+  auth status [--json]         Show credentials in use and validate the key
   update                       Update to latest version
   health                       Check server status
 
@@ -141,6 +141,10 @@ Flags:
   --json               Output raw JSON
   --limit <n>          Result limit
   --out, -o <path>     Output file or directory
+
+Environment:
+  DILLION_API_KEY      API key to use instead of the one saved by "dillion auth"
+  DILLION_API_URL      Server for DILLION_API_KEY (default: saved server, else bastion.dillion.ai)
 `;
 
 /**

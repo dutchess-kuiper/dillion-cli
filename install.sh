@@ -2,8 +2,19 @@
 set -e
 
 REPO="dutchess-kuiper/dillion-cli"
-INSTALL_DIR="/usr/local/bin"
 BINARY_NAME="dillion"
+
+# Where to install: $INSTALL_DIR if set; else the folder of the dillion already on PATH, so
+# `dillion update` replaces the copy that actually runs (no sudo for a user-owned folder like
+# ~/.local/bin, and no stale copy left earlier on PATH); else /usr/local/bin.
+if [ -z "${INSTALL_DIR:-}" ]; then
+  EXISTING="$(command -v "$BINARY_NAME" 2>/dev/null || true)"
+  if [ -n "$EXISTING" ] && [ -f "$EXISTING" ]; then
+    INSTALL_DIR="$(dirname "$EXISTING")"
+  else
+    INSTALL_DIR="/usr/local/bin"
+  fi
+fi
 
 # Detect platform
 OS="$(uname -s)"
