@@ -1,4 +1,10 @@
-import { loadConfig, saveConfig, type Config } from "../config";
+import {
+  loadConfig,
+  saveConfig,
+  exitNoConfigFile,
+  exitIfEnvServerMismatch,
+  type Config,
+} from "../config";
 import { parseFlags } from "../flags";
 
 const PROJECT_HELP = `
@@ -26,10 +32,9 @@ export async function projectUseCommand(args: string[]) {
   }
 
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("-p/--project");
+
+  exitIfEnvServerMismatch(cfg, "-p/--project");
 
   await saveConfig(mergeProject(cfg, id));
   console.log(`Default project set to ${id}`);
@@ -37,10 +42,7 @@ export async function projectUseCommand(args: string[]) {
 
 export async function projectShowCommand() {
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("-p/--project");
   if (cfg.projectId) {
     console.log(cfg.projectId);
   } else {
@@ -50,10 +52,7 @@ export async function projectShowCommand() {
 
 export async function projectClearCommand() {
   const cfg = await loadConfig();
-  if (!cfg) {
-    console.error("Not logged in. Run: dillion auth <api-key>");
-    process.exit(1);
-  }
+  if (!cfg) exitNoConfigFile("-p/--project");
   await saveConfig({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
   console.log("Default project cleared.");
 }

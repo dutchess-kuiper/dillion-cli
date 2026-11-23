@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.28";
+export const VERSION = "0.1.29";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
 import { homedir } from "os";
 import { join } from "path";
-import { loadConfig } from "./config";
+import { loadEffectiveConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
@@ -88,7 +88,7 @@ Usage: dillion <command> [options]
 
 Commands:
   auth <api-key> [--url=...]   Save API credentials
-  auth status [--json]         Show stored credentials and validate the key
+  auth status [--json]         Show credentials in use and validate the key
   update                       Update to latest version
   health                       Check server status
 
@@ -141,6 +141,10 @@ Flags:
   --json               Output raw JSON
   --limit <n>          Result limit
   --out, -o <path>     Output file or directory
+
+Environment:
+  DILLION_API_KEY      API key to use instead of the one saved by "dillion auth"
+  DILLION_API_URL      Server for DILLION_API_KEY (default: saved server, else bastion.dillion.ai)
 `;
 
 /**
@@ -162,7 +166,7 @@ async function applyOrgOverride(flag: string | undefined) {
     );
     process.exit(1);
   }
-  const cfg = await loadConfig();
+  const cfg = (await loadEffectiveConfig())?.config;
   setOrgOverride(resolveOrgOverride(flagVal, cfg?.orgId));
 }
 
