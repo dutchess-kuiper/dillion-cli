@@ -123,7 +123,11 @@ export function describeNetworkError(err: unknown, url: string): string {
 
 /** Mask API keys in a message that might quote a request header. */
 export function redactSecrets(message: string): string {
-  return message.replace(/Bearer\s+[^\s'"]+/g, "Bearer ****").replace(/dil_[^\s'"]*/g, "dil_****");
+  // Keys are dil_ + a long alphanumeric run. Anchor on that shape so a path
+  // segment like /tmp/dil_cache/report.pdf survives.
+  return message
+    .replace(/Bearer\s+[^\s'"]+/g, "Bearer ****")
+    .replace(/(?<![\w/.-])dil_[A-Za-z0-9]{16,}(?![\w/.-])/g, "dil_****");
 }
 
 /**

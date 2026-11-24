@@ -290,9 +290,10 @@ async function shareLinksCreate(args: string[]) {
     if (!outcome.ok) {
       // Don't leave a half-built link: revoke it (a revoked link opens for
       // nobody, whatever was granted), then say exactly what happened.
-      const revoke = await apiResult(`/share-links/${encodeURIComponent(link.id)}`, {
-        method: "DELETE",
-      });
+      const revoke = revokeOutcome(
+        await apiResult(`/share-links/${encodeURIComponent(link.id)}`, { method: "DELETE" }),
+        link.id,
+      );
       if (flags.json !== undefined) {
         // Callers parsing --json must be able to tell "revoked" from "still
         // live, revoke it yourself" without reading stderr.
@@ -302,8 +303,8 @@ async function shareLinksCreate(args: string[]) {
               error: outcome.message,
               granted: outcome.unconfirmed ? "unknown" : "no",
               link_id: link.id,
-              revoked: revoke.ok,
-              ...(revoke.ok ? {} : { revoke_error: revoke.message }),
+              revoked: revoke.revoked,
+              ...(revoke.error ? { revoke_error: revoke.error } : {}),
             },
             null,
             2,
@@ -315,11 +316,7 @@ async function shareLinksCreate(args: string[]) {
           ? `Couldn't confirm the portal grant (${outcome.message}). Access may have been granted and invites sent.`
           : `Portal access was refused: ${outcome.message}\nNothing was granted and nobody was emailed.`,
       );
-      console.error(
-        revoke.ok
-          ? `The new link ${link.id} was revoked, so nobody can open it.`
-          : `Revoking the new link failed too (${revoke.message}). Revoke it yourself: dillion share-links revoke ${link.id}`,
-      );
+      console.error(revoke.text);
       process.exit(1);
     }
     grants = outcome;
@@ -328,7 +325,10 @@ async function shareLinksCreate(args: string[]) {
   if (flags.json !== undefined) {
     console.log(
       JSON.stringify(
-        grants ? { ...res, portal_url: portalUrl, ...portalGrantJson(grants) } : res,
+        // link_id at the top level too, so scripts read the same key as portal-add.
+        grants
+          ? { link_id: link.id, ...res, portal_url: portalUrl, ...portalGrantJson(grants) }
+          : { link_id: link.id, ...res },
         null,
         2,
       ),
@@ -587,6 +587,31 @@ interface PortalGrants {
 }
 
 /** The email/notify fields of a grant, as they appear in --json output. */
+/**
+ * What the clean-up revoke after a failed portal grant achieved. A DELETE that
+ * got a 5xx or no reply may still have gone through, so it's "unknown", not false.
+ */
+export function revokeOutcome(
+  r: { ok: true } | { ok: false; message: string; unconfirmed: boolean },
+  linkId: string,
+): { revoked: true | false | "unknown"; error?: string; text: string } {
+  if (r.ok) {
+    return { revoked: true, text: `The new link ${linkId} was revoked, so nobody can open it.` };
+  }
+  if (r.unconfirmed) {
+    return {
+      revoked: "unknown",
+      error: r.message,
+      text: `Couldn't confirm the new link was revoked (${r.message}). Check with: dillion share-links get ${linkId}, and revoke it if it's still active: dillion share-links revoke ${linkId}`,
+    };
+  }
+  return {
+    revoked: false,
+    error: r.message,
+    text: `Revoking the new link failed too (${r.message}). Revoke it yourself: dillion share-links revoke ${linkId}`,
+  };
+}
+
 function portalGrantJson(g: PortalGrants) {
   return {
     clients: g.clients,
