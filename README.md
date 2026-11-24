@@ -356,7 +356,7 @@ Portal URL format (printed by the commands above; override the origin with `DILL
 https://portal.dillion.ai/projects/<project-id>/bundles/<link-id>
 ```
 
-Portal viewers always see each report's latest version and its source previews, so `--versions` pins and `--no-citations` can't be combined with `--portal`, `--clients` or `--orgs`. On an existing link with source previews turned off, `portal-add` grants nothing unless you pass `--with-previews`. If granting access fails during `create`, the CLI tries to revoke the new link (a revoked link opens for nobody) and says whether that revoke succeeded, failed or couldn't be confirmed. When the grant or the revoke response is unconfirmed (a server error or a lost connection), the CLI can't tell what was granted or emailed; check with `dillion share-links portal-list <link-id>` and `dillion share-links get <link-id>`.
+Portal viewers always see each report's latest version and its source previews, so `--versions` pins and `--no-citations` can't be combined with `--portal`, `--clients` or `--orgs`. On an existing link with source previews turned off, `portal-add` grants nothing unless you pass `--with-previews`. If granting access fails during `create`, the CLI tries to revoke the new link (a revoked link opens for nobody) and says whether that revoke succeeded, failed or couldn't be confirmed. When the grant or the revoke response is unconfirmed (a server error or a lost connection), the CLI can't tell what was granted or emailed; check with `dillion share-links portal-list <link-id>` and `dillion share-links get <link-id>`. With `--json`, a failed grant still prints one JSON object: `{"error", "granted": "no" | "unknown", "link_id"}`, plus `"revoked": true | false` (and `revoke_error`) on `create`. A successful grant's JSON includes `email_results`, `notified_count` and `notify_org_errors`; an invite that couldn't be sent is `"email_sent": false` there, and a `warning:` line in the normal output. Its access still stands.
 
 **`--labels` and `--versions` alignment:** pipe-separated entries match `--reports` index-by-index. An empty entry means “use report title” (labels) or “always latest” (versions). Example: `--reports a,b,c --versions "2||1"` pins report A to v2, B to latest, C to v1.
 
@@ -416,7 +416,7 @@ dillion jobs list -p <project-id> --json | jq '.jobs[].fileName'
 
 ## Errors
 
-`files download` keeps going when a file fails and downloads the rest, then exits 1 if any file failed (including a job id the server didn't return), and 0 only when every file was saved. With `--json`, each failed file carries its own `error`.
+`files download` keeps going when a file fails and downloads the rest, then exits 1 if any file failed (including a job id the server didn't return), and 0 only when every file was saved. With `--json`, the output lists every requested id, each failed one with its own `error` (an id the server didn't return gets `"error": "not returned by the server"`), and the command exits 0 so scripts can still read the files that worked; failures are also named on stderr.
 
 When the server can't be reached (connection refused, unknown host, timeout, bad server URL) the CLI says which, in one line, and exits 1. Any other unexpected error is also one line; set `DILLION_DEBUG=1` to see the full stack trace.
 

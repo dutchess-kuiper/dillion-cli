@@ -174,14 +174,20 @@ export async function filesDownloadCommand(args: string[]) {
         method: "POST",
         body: { jobIds: positional, ...(projectId && { projectId }) },
       });
-      console.log(JSON.stringify(data, null, 2));
       const entries: Array<{ jobId?: string; error?: string | null; url?: string | null }> =
         Array.isArray(data?.urls) ? data.urls : [];
-      const returned = new Set(entries.map((e) => String(e.jobId ?? "")));
-      exitForDownloadFailures([
-        ...entries.map((e) => ({ jobId: String(e.jobId ?? ""), error: e.error || (e.url ? undefined : "no URL") })),
-        ...positional.filter((id) => !returned.has(id)).map((jobId) => ({ jobId, error: "not returned by the server" })),
-      ], { quiet: true });
+      // Ids the server left out (e.g. jobs the caller can't see) become error
+      // entries, so the JSON accounts for every requested id.
+      const missing = missingJobIds(positional, entries).map((jobId) => ({
+        jobId,
+        url: null,
+        error: "not returned by the server",
+      }));
+      const urls = [...entries, ...missing];
+      console.log(JSON.stringify({ ...data, urls }, null, 2));
+      reportJsonDownloadFailures(
+        urls.map((e) => ({ jobId: String(e.jobId ?? ""), error: e.error || (e.url ? undefined : "no URL") })),
+      );
       return;
     }
 
@@ -196,9 +202,8 @@ export async function filesDownloadCommand(args: string[]) {
       })
     );
     console.log(JSON.stringify({ files }, null, 2));
-    exitForDownloadFailures(
+    reportJsonDownloadFailures(
       files.map((f) => ({ jobId: f.jobId, error: "error" in f ? f.error : undefined })),
-      { quiet: true },
     );
     return;
   }
@@ -269,25 +274,40 @@ export function downloadOutcome(results: Array<{ error?: string | null }>): {
   return { failed, total: results.length, exitCode: failed > 0 ? 1 : 0 };
 }
 
-function exitForDownloadFailures(
-  results: Array<{ jobId?: string; error?: string | null }>,
-  options: { quiet?: boolean } = {},
-): void {
+/**
+ * Requested job ids missing from the server's response. Bastion accepts ids in
+ * any case but answers with Postgres's lowercase form, so compare
+ * case-insensitively; a missing id is reported as the caller typed it.
+ */
+export function missingJobIds(
+  requested: string[],
+  entries: Array<{ jobId?: string | null }>,
+): string[] {
+  const returned = new Set(entries.map((e) => String(e.jobId ?? "").toLowerCase()));
+  return requested.filter((id) => !returned.has(id.toLowerCase()));
+}
+
+function exitForDownloadFailures(results: Array<{ jobId?: string; error?: string | null }>): void {
   const { failed, total, exitCode } = downloadOutcome(results);
   if (exitCode === 0) return;
-  if (options.quiet) {
-    // --json keeps stdout as JSON; say on stderr which files failed and why.
-    for (const r of results as Array<{ jobId?: string; error?: string | null }>) {
-      if (r.error) console.error(`FAIL  ${r.jobId ?? "?"}: ${r.error}`);
-    }
-  } else {
-    console.error(
-      failed === total
-        ? `No files downloaded (${failed} failed).`
-        : `${total - failed} of ${total} files downloaded; ${failed} failed.`,
-    );
-  }
+  console.error(
+    failed === total
+      ? `No files downloaded (${failed} failed).`
+      : `${total - failed} of ${total} files downloaded; ${failed} failed.`,
+  );
   process.exit(exitCode);
+}
+
+/**
+ * --json: stdout already holds every file's result, failures included as
+ * `error` entries, so the command exits 0 and callers read the JSON. Scripts
+ * (e.g. the DDD citation bake) discard stdout on a non-zero exit, which would
+ * lose the good URLs along with the bad one. Failures are also named on stderr.
+ */
+function reportJsonDownloadFailures(results: Array<{ jobId?: string; error?: string | null }>): void {
+  for (const r of results) {
+    if (r.error) console.error(`FAIL  ${r.jobId ?? "?"}: ${r.error}`);
+  }
 }
 
 async function downloadOriginalJobs(options: {
@@ -302,9 +322,7 @@ async function downloadOriginalJobs(options: {
   });
 
   const entries = Array.isArray(data.urls) ? data.urls : [];
-  const returned = new Set(entries.map((e: any) => String(e.jobId || "")));
-  const missing = options.jobIds
-    .filter((id) => !returned.has(id))
+  const missing = missingJobIds(options.jobIds, entries)
     .map((jobId) => ({ jobId, error: "not returned by the server" }) as { jobId: string; error?: string; fileName?: string; savedTo?: string });
   const fetched = await Promise.all(
     entries.map(async (entry: any) => {

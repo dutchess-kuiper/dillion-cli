@@ -107,8 +107,38 @@ export function describeNetworkError(err: unknown, url: string): string {
     return `Couldn't make a secure connection to ${host} (certificate problem).`;
   }
   // Bun appends advice about its own fetch options; it means nothing to a user.
-  const detail = (e?.message ?? "").replace(/\s*For more information, pass `verbose: true`.*$/s, "").trim();
+  const detail = redactSecrets(
+    (e?.message ?? "").replace(/\s*For more information, pass `verbose: true`.*$/s, "").trim(),
+  );
+  if (!code) {
+    // Not a connection failure (Bun's network errors all carry a code): e.g. a
+    // header fetch() refuses to send. Connection advice would mislead.
+    if (/header/i.test(detail) && /Bearer/.test(detail)) {
+      return "Error: the API key contains characters that can't be sent. Check DILLION_API_KEY or re-run: dillion auth <api-key>";
+    }
+    return `Error: ${detail || "the request couldn't be sent"}`;
+  }
   return `Couldn't reach ${host}${detail ? ` (${detail})` : ""}. Check your connection, or run: dillion health`;
+}
+
+/** Mask API keys in a message that might quote a request header. */
+export function redactSecrets(message: string): string {
+  return message.replace(/Bearer\s+[^\s'"]+/g, "Bearer ****").replace(/dil_[^\s'"]*/g, "dil_****");
+}
+
+/**
+ * Whether a fetch error proves the request never reached the server: it was
+ * refused before sending (no error code), the host doesn't resolve, or the
+ * connection was refused. Anything else (timeouts, resets) may have been
+ * applied.
+ */
+export function requestNeverSent(err: unknown): boolean {
+  const e = err as { name?: string; code?: string; message?: string } | undefined;
+  if (e?.name === "TimeoutError" || e?.name === "AbortError") return false;
+  if (/socket connection was closed/i.test(e?.message ?? "")) return false;
+  const code = e?.code ?? "";
+  if (!code) return true;
+  return ["ENOTFOUND", "EAI_AGAIN", "ConnectionRefused", "ECONNREFUSED", "ERR_INVALID_URL", "FailedToOpenSocket"].includes(code);
 }
 
 /**
@@ -214,7 +244,11 @@ export async function apiResult(
       signal: AbortSignal.timeout(60_000),
     });
   } catch (err) {
-    return { ok: false, unconfirmed: true, message: await explainNetworkError(err, `${baseUrl}${path}`) };
+    return {
+      ok: false,
+      unconfirmed: !requestNeverSent(err),
+      message: await explainNetworkError(err, `${baseUrl}${path}`),
+    };
   }
   if (!res.ok) {
     let errBody: string;

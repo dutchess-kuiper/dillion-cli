@@ -293,6 +293,23 @@ async function shareLinksCreate(args: string[]) {
       const revoke = await apiResult(`/share-links/${encodeURIComponent(link.id)}`, {
         method: "DELETE",
       });
+      if (flags.json !== undefined) {
+        // Callers parsing --json must be able to tell "revoked" from "still
+        // live, revoke it yourself" without reading stderr.
+        console.log(
+          JSON.stringify(
+            {
+              error: outcome.message,
+              granted: outcome.unconfirmed ? "unknown" : "no",
+              link_id: link.id,
+              revoked: revoke.ok,
+              ...(revoke.ok ? {} : { revoke_error: revoke.message }),
+            },
+            null,
+            2,
+          ),
+        );
+      }
       console.error(
         outcome.unconfirmed
           ? `Couldn't confirm the portal grant (${outcome.message}). Access may have been granted and invites sent.`
@@ -311,7 +328,7 @@ async function shareLinksCreate(args: string[]) {
   if (flags.json !== undefined) {
     console.log(
       JSON.stringify(
-        grants ? { ...res, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs } : res,
+        grants ? { ...res, portal_url: portalUrl, ...portalGrantJson(grants) } : res,
         null,
         2,
       ),
@@ -562,8 +579,22 @@ interface PortalGrants {
   clients: any[];
   orgs: any[];
   invitedEmails: string[];
+  /** Invites the server couldn't send (the grant itself still stands). */
+  failedEmails: string[];
+  emailResults: any[];
   notifiedOrgMembers: number;
   notifyOrgErrors: string[];
+}
+
+/** The email/notify fields of a grant, as they appear in --json output. */
+function portalGrantJson(g: PortalGrants) {
+  return {
+    clients: g.clients,
+    orgs: g.orgs,
+    email_results: g.emailResults,
+    notified_count: g.notifiedOrgMembers,
+    notify_org_errors: g.notifyOrgErrors,
+  };
 }
 
 type PortalGrantOutcome = PortalGrants | { ok: false; message: string; unconfirmed: boolean };
@@ -586,13 +617,14 @@ async function grantPortalAccess(
   if (typeof r.data !== "object" || !Array.isArray(r.data.clients) || !Array.isArray(r.data.orgs)) {
     return { ok: false, unconfirmed: true, message: "unexpected response" };
   }
+  const emailResults: any[] = Array.isArray(r.data.email_results) ? r.data.email_results : [];
   return {
     ok: true,
     clients: r.data.clients,
     orgs: r.data.orgs,
-    invitedEmails: (r.data.email_results ?? [])
-      .filter((e: any) => e.email_sent)
-      .map((e: any) => e.email),
+    invitedEmails: emailResults.filter((e) => e.email_sent).map((e) => e.email),
+    failedEmails: emailResults.filter((e) => !e.email_sent).map((e) => e.email),
+    emailResults,
     notifiedOrgMembers: r.data.notified_count ?? 0,
     notifyOrgErrors: r.data.notify_org_errors ?? [],
   };
@@ -612,6 +644,12 @@ function printPortalGrants(g: PortalGrants) {
   }
   if (g.notifiedOrgMembers > 0) {
     console.log(`  emailed:   ${g.notifiedOrgMembers} org member(s)`);
+  }
+  if (g.failedEmails.length > 0) {
+    console.log(
+      `  warning:   couldn't email ${g.failedEmails.join(", ")}. Their access is granted; ` +
+        "send them the portal link yourself.",
+    );
   }
   if (g.notifyOrgErrors.length > 0) {
     console.log(`  warning:   couldn't email members of ${g.notifyOrgErrors.join(", ")}`);
@@ -673,6 +711,15 @@ async function shareLinksPortalAdd(args: string[]) {
   }
   const grants = await grantPortalAccess(link.id, audience, flags["no-notify"] === undefined);
   if (!grants.ok) {
+    if (flags.json !== undefined) {
+      console.log(
+        JSON.stringify(
+          { error: grants.message, granted: grants.unconfirmed ? "unknown" : "no", link_id: link.id },
+          null,
+          2,
+        ),
+      );
+    }
     console.error(
       grants.unconfirmed
         ? `Couldn't confirm the portal grant (${grants.message}). Check with: dillion share-links portal-list ${link.id}`
@@ -684,7 +731,7 @@ async function shareLinksPortalAdd(args: string[]) {
   if (flags.json !== undefined) {
     console.log(
       JSON.stringify(
-        { link_id: link.id, portal_url: portalUrl, clients: grants.clients, orgs: grants.orgs, warnings },
+        { link_id: link.id, portal_url: portalUrl, ...portalGrantJson(grants), warnings },
         null,
         2,
       ),
