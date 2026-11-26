@@ -312,7 +312,7 @@ dillion share-links create \
 
 # Manage
 dillion share-links list -p <project-id>
-dillion share-links get <link-id>
+dillion share-links get <link>        # link id, slug, /share/<slug> URL or portal URL
 dillion share-links update <link-id> --password '<new-password>' --expires-days 14
 dillion share-links update <link-id> --reports <id1>,<id2> --labels "FDD|Cap Table"
 dillion share-links revoke <link-id>
@@ -323,6 +323,8 @@ Counterparty URL format:
 ```
 https://vdr.dillion.ai/share/<slug>
 ```
+
+`get`, `portal-list` and `portal-add` take the link however you have it: its id, its slug, the `/share/<slug>` URL or its portal URL. So you can paste a counterparty URL straight in to find its link id and project. A slug or URL is looked up across every project you can share from in the active org. `update` and `revoke` still need the link id.
 
 ### Portal links (no password)
 
@@ -344,10 +346,10 @@ dillion share-links create \
   --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
 
 # Give more existing clients/orgs access to any link (public or portal-only)
-dillion share-links portal-add <link-id> --clients a@x.com,b@y.com --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
+dillion share-links portal-add <link> --clients a@x.com,b@y.com --orgs org_01J8ZK3QW2V9N4T6R5B7C1D0EF
 
 # Who can open it, and the portal URL to send
-dillion share-links portal-list <link-id>
+dillion share-links portal-list <link>
 ```
 
 Portal URL format (printed by the commands above; override the origin with `DILLION_PORTAL_URL`):
