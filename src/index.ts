@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.29";
+export const VERSION = "0.1.30";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -8,6 +8,7 @@ import { homedir } from "os";
 import { join } from "path";
 import { loadEffectiveConfig } from "./config";
 import { classifyOrgIdFlag, looksLikeOrgId, resolveOrgOverride, setOrgOverride } from "./orgContext";
+import { normalizeHelpArgs, resolveHelp, rewriteHelpArgs, wantsHelp } from "./commands/help";
 
 const UPDATE_CHECK_FILE = join(homedir(), ".config", "dillion", "last_update_check");
 const CHECK_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
@@ -75,7 +76,9 @@ function stripOrgIdFlag(argv: string[]): { orgIdFlag: string | undefined; args: 
   return { orgIdFlag, args: out };
 }
 
-const { orgIdFlag, args } = stripOrgIdFlag(process.argv.slice(2));
+const stripped = stripOrgIdFlag(process.argv.slice(2));
+const orgIdFlag = stripped.orgIdFlag;
+const args = normalizeHelpArgs(rewriteHelpArgs(stripped.args));
 const command = args[0];
 const subcommand = args[1];
 const rest = args.slice(1);
@@ -134,6 +137,17 @@ Commands:
   share-links get <link-id>    Show a share link with items
   share-links update <link-id> Change slug, password, expiry, email allowlist, items
   share-links revoke <link-id> Soft-revoke a share link
+  share-links create --portal  Create a portal link (no password) for existing clients/orgs
+  share-links portal-add <id>  Give existing portal clients/orgs access to a link
+  share-links portal-list <id> Show a link's portal URL and who can open it
+  share-links portal-orgs <q>  Look up client org ids by name (for --orgs)
+
+Help:
+  <command> --help             Help for one command, e.g. dillion share-links --help
+  help <command>               Same, e.g. dillion help search
+  docs                         Full command reference
+  skill                        Print the dillion-cli agent skill (full guide; --out <path> to save)
+  help skill                   Same as skill
 
 Flags:
   --project, -p <id>   Project ID (optional after: dillion project use <id>)
@@ -171,9 +185,23 @@ async function applyOrgOverride(flag: string | undefined) {
 }
 
 async function main() {
+  if (command === "help" && subcommand === "skill") {
+    const { skillCommand } = await import("./commands/skill");
+    return skillCommand(subrest);
+  }
   if (!command || command === "help" || command === "--help" || command === "-h") {
     console.log(HELP.trim());
     process.exit(0);
+  }
+
+  // --help is answered here, before dispatch, unless the subcommand prints its
+  // own: so it always exits 0 and never runs the command.
+  if (command && wantsHelp(rest)) {
+    const text = await resolveHelp(command, subcommand);
+    if (text !== null) {
+      console.log(text);
+      process.exit(0);
+    }
   }
 
   if (command === "--version" || command === "-v" || command === "version") {
@@ -188,6 +216,10 @@ async function main() {
       const { authCommand, authStatusCommand } = await import("./commands/auth");
       if (subcommand === "status") return authStatusCommand(subrest);
       return authCommand(rest);
+    }
+    case "skill": {
+      const { skillCommand } = await import("./commands/skill");
+      return skillCommand(rest);
     }
     case "docs": {
       const { docsCommand } = await import("./commands/docs");
@@ -336,4 +368,23 @@ async function main() {
   }
 }
 
-main().then(() => checkForUpdate(command));
+/**
+ * Last line of defence: anything a command didn't handle becomes one line on
+ * stderr and exit 1, never a Bun stack trace. DILLION_DEBUG=1 shows the stack.
+ */
+function failUnexpected(err: unknown): never {
+  if (process.env.DILLION_DEBUG) {
+    console.error(err);
+  } else {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Error: ${message}`);
+    console.error("(Run with DILLION_DEBUG=1 for details.)");
+  }
+  process.exit(1);
+}
+
+// Help (including help a subcommand prints itself) never needs the update check.
+const helpRequested = wantsHelp(args);
+main()
+  .then(() => (helpRequested ? undefined : checkForUpdate(command)))
+  .catch(failUnexpected);

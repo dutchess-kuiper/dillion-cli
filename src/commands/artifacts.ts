@@ -8,7 +8,7 @@ import { applyPasswordFlag, rejectRemovePasswordFlag } from "./shareLinks";
 import { VITE_REACT_TEMPLATE } from "../templates/viteReact";
 import { buildZip, walkDirToZipInputs } from "../zip";
 
-const ARTIFACTS_HELP = `
+export const ARTIFACTS_HELP = `
 Usage: dillion artifacts <command> [options]
 
 Authoring:

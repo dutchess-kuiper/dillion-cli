@@ -1,3 +1,4 @@
+import { explainNetworkError } from "../api";
 import {
   loadConfig,
   loadEffectiveConfig,
@@ -115,13 +116,17 @@ export async function authCommand(args: string[]) {
   const server = baseUrl || DEFAULT_BASE_URL;
 
   // Validate the key against a direct (pre-org-selection) route and learn the memberships.
+  let networkError: unknown;
   const res = await fetch(`${server}/orgs`, {
     method: "GET",
     headers: { Authorization: `Bearer ${apiKey}` },
-  }).catch(() => null);
+  }).catch((err) => {
+    networkError = err;
+    return null;
+  });
 
   if (!res) {
-    console.error("Server unreachable.");
+    console.error(await explainNetworkError(networkError, server));
     process.exit(1);
   }
   if (res.status === 401 || res.status === 403) {
