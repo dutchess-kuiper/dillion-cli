@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-export const VERSION = "0.1.30";
+export const VERSION = "0.1.31";
 
 const SKIP_UPDATE_CHECK = new Set(["auth", "update", "version", "--version", "-v", "help", "--help", "-h"]);
 
@@ -134,12 +134,14 @@ Commands:
 
   share-links create -p <pid>  Create password-protected multi-artifact share link (--password required; see share-links --help)
   share-links list -p <pid>    List share links for a project
-  share-links get <link-id>    Show a share link with items
+  share-links get <link>       Show a share link with items (id, slug or URL)
   share-links update <link-id> Change slug, password, expiry, email allowlist, items
   share-links revoke <link-id> Soft-revoke a share link
   share-links create --portal  Create a portal link (no password) for existing clients/orgs
-  share-links portal-add <id>  Give existing portal clients/orgs access to a link
-  share-links portal-list <id> Show a link's portal URL and who can open it
+  share-links portal-add <link>
+                               Give existing portal clients/orgs access to a link
+  share-links portal-list <link>
+                               Show a link's portal URL and who can open it
   share-links portal-orgs <q>  Look up client org ids by name (for --orgs)
 
 Help:

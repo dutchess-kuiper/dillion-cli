@@ -3,6 +3,7 @@ import {
   describePortalAccess,
   formatOrgRows,
   parseOrgIds,
+  parseShareLinkRef,
   portalBaseUrl,
   portalBundleUrl,
   portalOnlyFlagConflicts,
@@ -46,17 +47,17 @@ Commands:
                                 Portal viewers always see source previews, so --no-citations
                                 and --versions pins can't be combined with portal access.
 
-  portal-add <link-id> [--clients <emails>] [--orgs <org-ids>] [--no-notify]
+  portal-add <link> [--clients <emails>] [--orgs <org-ids>] [--no-notify]
                                 Give existing portal clients / orgs access to a link
     [--with-previews]           Needed when the link has source previews off: portal
                                 viewers always see them
-  portal-list <link-id>         Show who can open a link on the portal, plus its portal URL
+  portal-list <link>            Show who can open a link on the portal, plus its portal URL
   portal-orgs <name> [--limit N] [--json]
                                 Look up existing client orgs by name; prints the org ids
                                 to pass to --orgs
 
   list -p <pid>                 List share links for a project
-  get <link-id>                 Show a share link and its items
+  get <link>                    Show a share link and its items
   update <link-id> [options]    Change slug, password, allowlist, expiry, etc.
     [--title <t>]               Rename
     [--description <text>]      Update description
@@ -73,6 +74,9 @@ Commands:
     [--labels ...] [--versions ...]
                                 Match --reports order; use with --reports
   revoke <link-id>              Soft-revoke a share link
+
+  <link> (get, portal-list, portal-add): the link id, its slug, its /share/<slug> URL,
+  or its portal URL. update and revoke still take the link id.
 `.trim();
 
 export async function shareLinksCommand(args: string[]) {
@@ -395,14 +399,38 @@ async function shareLinksList(args: string[]) {
 
 // ─── get ─────────────────────────────────────────────────────────────────
 
-async function shareLinksGet(args: string[]) {
-  const { flags, positional } = parseFlags(args);
-  const linkId = positional[0];
-  if (!linkId) {
-    console.error("Usage: dillion share-links get <link-id>");
+const LINK_REF_HELP =
+  "  <link> is the link id, its slug, its /share/<slug> URL, or its portal URL.";
+
+/**
+ * Load a share link from whatever identifies it (see parseShareLinkRef).
+ * Exits with a usage error, or with the server's error, when it can't.
+ */
+async function loadShareLink(input: string | undefined, usage: string): Promise<any> {
+  const parsed = input ? parseShareLinkRef(input) : null;
+  if (!parsed) {
+    console.error(`${usage}\n${LINK_REF_HELP}`);
     process.exit(1);
   }
-  const data = await api(`/share-links/${encodeURIComponent(linkId)}`);
+  const res = await apiResult(`/share-links/${encodeURIComponent(parsed.ref)}`);
+  if (res.ok) return res.data;
+  if (parsed.kind === "slug" && /Invalid share link id/i.test(res.message)) {
+    console.error(
+      "This server can't look links up by slug yet. Use the link id instead (find it with: dillion share-links list -p <project-id>).",
+    );
+  } else if (parsed.kind === "slug" && /\b404\b|not found/i.test(res.message)) {
+    console.error(
+      `No share link "${parsed.ref}" in a project you can share from. If it's in another org, switch with: dillion org use <org>`,
+    );
+  } else {
+    console.error(res.message);
+  }
+  process.exit(1);
+}
+
+async function shareLinksGet(args: string[]) {
+  const { flags, positional } = parseFlags(args);
+  const data = await loadShareLink(positional[0], "Usage: dillion share-links get <link>");
   if (flags.json !== undefined) {
     console.log(JSON.stringify(data, null, 2));
     return;
@@ -690,11 +718,11 @@ async function shareLinksPortalAdd(args: string[]) {
   const { flags, positional } = parseFlags(args);
   const linkId = positional[0];
   const audience = portalAudienceFlags(flags);
+  const portalAddUsage =
+    "Usage: dillion share-links portal-add <link> [--clients a@x.com,b@y.com] [--orgs org_…,org_…] [--no-notify]\n" +
+    "  At least one of --clients / --orgs. Only existing portal clients and orgs are accepted.";
   if (!linkId || !audience.any) {
-    console.error(
-      "Usage: dillion share-links portal-add <link-id> [--clients a@x.com,b@y.com] [--orgs org_…,org_…] [--no-notify]\n" +
-        "  At least one of --clients / --orgs. Only existing portal clients and orgs are accepted.",
-    );
+    console.error(`${portalAddUsage}\n${LINK_REF_HELP}`);
     process.exit(1);
   }
   if (flags["no-citations"] !== undefined) {
@@ -704,7 +732,7 @@ async function shareLinksPortalAdd(args: string[]) {
     );
     process.exit(1);
   }
-  const link = await api(`/share-links/${encodeURIComponent(linkId)}`);
+  const link = await loadShareLink(linkId, portalAddUsage);
   if (link.revoked_at) {
     console.error(`Link ${link.id} is revoked; nobody can open it. Create a new link instead.`);
     process.exit(1);
@@ -772,14 +800,10 @@ async function shareLinksPortalAdd(args: string[]) {
 
 async function shareLinksPortalList(args: string[]) {
   const { flags, positional } = parseFlags(args);
-  const linkId = positional[0];
-  if (!linkId) {
-    console.error("Usage: dillion share-links portal-list <link-id>");
-    process.exit(1);
-  }
-  const id = encodeURIComponent(linkId);
-  const [link, clients, orgs] = await Promise.all([
-    api(`/share-links/${id}`),
+  // The roster routes need the id, so resolve a slug or URL first.
+  const link = await loadShareLink(positional[0], "Usage: dillion share-links portal-list <link>");
+  const id = encodeURIComponent(link.id);
+  const [clients, orgs] = await Promise.all([
     api(`/share-links/${id}/clients`),
     api(`/share-links/${id}/orgs`),
   ]);

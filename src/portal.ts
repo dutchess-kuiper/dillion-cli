@@ -111,6 +111,50 @@ export function portalBundleUrl(base: string, projectId: string, linkId: string)
   return `${base}/projects/${encodeURIComponent(projectId)}/bundles/${encodeURIComponent(linkId)}`;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Same shape the backend allows for slugs (lower-case words joined by single hyphens).
+const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * What the user typed where a share link is expected: a link id, a slug, a
+ * public share URL (…/share/<slug>[/…]) or a portal URL (…/bundles/<link-id>).
+ * Returns the id or slug to look up, or null when it's none of those.
+ * Pure: `GET /share-links/<ref>` takes either an id or a slug.
+ */
+export function parseShareLinkRef(input: string): { ref: string; kind: "id" | "slug" } | null {
+  const raw = input.trim();
+  if (!raw) return null;
+  if (UUID_RE.test(raw)) return { ref: raw.toLowerCase(), kind: "id" };
+  let path: string | null = null;
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) {
+    try {
+      path = new URL(raw).pathname;
+    } catch {
+      return null;
+    }
+  } else if (raw.includes("/")) {
+    // A URL pasted without its scheme: dillion.ai/share/<slug>, /share/<slug>, …
+    path = raw.split(/[?#]/)[0]!;
+  }
+  if (path === null) return SLUG_RE.test(raw) ? { ref: raw, kind: "slug" } : null;
+  const parts = path.split("/").filter(Boolean).map((p) => {
+    try {
+      return decodeURIComponent(p);
+    } catch {
+      return p;
+    }
+  });
+  const bundle = parts.indexOf("bundles");
+  if (bundle >= 0 && parts[bundle + 1] && UUID_RE.test(parts[bundle + 1]!)) {
+    return { ref: parts[bundle + 1]!.toLowerCase(), kind: "id" };
+  }
+  const share = parts.indexOf("share");
+  if (share >= 0 && parts[share + 1] && SLUG_RE.test(parts[share + 1]!)) {
+    return { ref: parts[share + 1]!, kind: "slug" };
+  }
+  return null;
+}
+
 /**
  * Flags that only mean something on the public /share URL. A portal-only link
  * has no public URL, so the backend rejects them; fail fast with the reason.
