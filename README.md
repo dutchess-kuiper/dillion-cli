@@ -285,6 +285,28 @@ Useful viewer URLs (append to the share URL):
 | `?tab=files` | Open the “VDR Files” tab beside the report |
 | `?noTop=1` or `?embed=1` | Hide the title/version header |
 
+### Report markups (`artifacts markups`)
+
+Analysts mark up a published report in the web app: highlight + comment, suggested edits, comments pinned to a chart or table, and Apple Pencil / freehand ink. Markups belong to the version they were made on. The CLI reads **submitted** markups (never anyone's drafts) and can reply, resolve and reopen. Resolving records who did it.
+
+```sh
+# Open markups across all versions, grouped by version
+dillion artifacts markups list <report-id>
+dillion artifacts markups list <report-id> --version 3 --status all
+dillion artifacts markups list <report-id> --author me
+
+# One markup: anchor (section, quote with surrounding text), suggestion or ink reading, thread
+dillion artifacts markups get <markup-id>
+dillion artifacts markups get <markup-id> --save-ink ./ink   # writes ./ink/<markup-id>.png
+
+# Act on it
+dillion artifacts markups reply <markup-id> "Which TB, FY24 or LTM?"
+dillion artifacts markups resolve <markup-id> --note "Fixed in v4"
+dillion artifacts markups reopen <markup-id>
+```
+
+`--json` prints the API's markup objects unchanged, so an agent fixing the report can work from them directly.
+
 ### Multi-report share links (`share-links`)
 
 Use when one counterparty link should bundle **multiple reports** as tabs — e.g. FDD memo + cap table + doc-DD summary on the same deal.

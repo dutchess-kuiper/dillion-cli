@@ -183,6 +183,7 @@ const SELF_HELP = new Set([
   "artifacts attach-workbook",
   "artifacts memo-chat",
   "artifacts download-raw",
+  "artifacts markups",
   "share-links",
   "skill",
 ]);
