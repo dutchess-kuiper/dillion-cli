@@ -65,6 +65,42 @@ export type Markup = {
 
 // ─── pure helpers ───────────────────────────────────────────────────────────
 
+/**
+ * Make text safe to print to a terminal: markup content is written by other
+ * people, so control characters (ESC sequences, carriage returns, C1 codes)
+ * and bidi overrides are shown as visible escapes instead of being
+ * interpreted. Newlines are kept.
+ */
+export function terminalSafe(text: string): string {
+  return text.replace(
+    /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    (ch) => `\\u{${ch.codePointAt(0)!.toString(16)}}`,
+  );
+}
+
+/**
+ * Flags a subcommand accepts (besides --help / -h). An unknown flag is an
+ * error: `resolve --notes "…"` must not resolve while dropping the note.
+ */
+export function unknownFlags(
+  flags: Record<string, string | true | undefined>,
+  allowed: readonly string[],
+): string[] {
+  return Object.keys(flags).filter((k) => !allowed.includes(k) && k !== "help" && k !== "h");
+}
+
+function failOnUnknownFlags(
+  flags: Record<string, string | true | undefined>,
+  allowed: readonly string[],
+  usage: string,
+): void {
+  const bad = unknownFlags(flags, allowed);
+  if (bad.length === 0) return;
+  console.error(`Unknown option${bad.length > 1 ? "s" : ""}: ${bad.map((f) => `--${f}`).join(", ")}`);
+  console.error(usage);
+  process.exit(1);
+}
+
 /** Build the list query string; returns an error message for a bad flag. */
 export function buildMarkupListQuery(flags: Record<string, string | true | undefined>):
   | { ok: true; query: string }
@@ -224,6 +260,7 @@ async function markupsList(args: string[]) {
     console.log(usage);
     return;
   }
+  failOnUnknownFlags(flags, ["version", "v", "status", "author", "json"], usage);
   const reportId = positional[0];
   if (!reportId) {
     console.error(usage);
@@ -241,7 +278,7 @@ async function markupsList(args: string[]) {
     console.log(JSON.stringify(data, null, 2));
     return;
   }
-  console.log(formatMarkupList(data));
+  console.log(terminalSafe(formatMarkupList(data)));
 }
 
 async function markupsGet(args: string[]) {
@@ -251,6 +288,7 @@ async function markupsGet(args: string[]) {
     console.log(usage);
     return;
   }
+  failOnUnknownFlags(flags, ["save-ink", "json"], usage);
   const markupId = positional[0];
   if (!markupId) {
     console.error(usage);
@@ -275,7 +313,7 @@ async function markupsGet(args: string[]) {
     console.log(JSON.stringify(savedTo ? { ...m, ink_png_path: savedTo } : m, null, 2));
     return;
   }
-  console.log(formatMarkupDetail(m));
+  console.log(terminalSafe(formatMarkupDetail(m)));
   if (savedTo) console.log(`✓ Wrote ${savedTo}`);
 }
 
@@ -286,6 +324,7 @@ async function markupsReply(args: string[]) {
     console.log(usage);
     return;
   }
+  failOnUnknownFlags(flags, ["json"], usage);
   const [markupId, ...textParts] = positional;
   const text = textParts.join(" ").trim();
   if (!markupId || !text) {
@@ -300,7 +339,7 @@ async function markupsReply(args: string[]) {
     console.log(JSON.stringify(m, null, 2));
     return;
   }
-  console.log(`✓ Replied on ${m.id} (${m.replies.length} in thread)`);
+  console.log(terminalSafe(`✓ Replied on ${m.id} (${m.replies.length} in thread)`));
 }
 
 async function markupsSetStatus(args: string[], action: "resolve" | "reopen") {
@@ -310,6 +349,7 @@ async function markupsSetStatus(args: string[], action: "resolve" | "reopen") {
     console.log(usage);
     return;
   }
+  failOnUnknownFlags(flags, ["note", "json"], usage);
   const markupId = positional[0];
   if (!markupId) {
     console.error(usage);
@@ -329,8 +369,10 @@ async function markupsSetStatus(args: string[], action: "resolve" | "reopen") {
     return;
   }
   console.log(
-    action === "resolve"
-      ? `✓ Resolved ${m.id} (by ${m.resolved_by_name ?? "you"})`
-      : `✓ Reopened ${m.id}`,
+    terminalSafe(
+      action === "resolve"
+        ? `✓ Resolved ${m.id} (by ${m.resolved_by_name ?? "you"})`
+        : `✓ Reopened ${m.id}`,
+    ),
   );
 }
