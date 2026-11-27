@@ -48,6 +48,15 @@ Sharing:
   share update <report-id> <share-id> [options]
                                 Change password, expiry, pin, or citation preview (see --help on each)
 
+Markups (analyst redlines, made in the web app):
+  markups list <report-id> [--version N] [--status open|resolved|all]
+                                List submitted markups (default: open)
+  markups get <markup-id> [--save-ink <dir>]
+                                Show a markup and its thread (ink PNG to <dir>)
+  markups reply <markup-id> "<text>"
+  markups resolve|reopen <markup-id> [--note "<text>"]
+                                (see: dillion artifacts markups --help)
+
 Common flags (share create/update):
   --password <pw>            Set (required on create) or change password (8+ chars)
   --expires-days <N>        Set expiry to N days from now (1–365)
@@ -114,6 +123,10 @@ export async function artifactsCommand(args: string[]) {
       return artifactsGet(rest);
     case "share":
       return artifactsShare(rest);
+    case "markups": {
+      const { markupsCommand } = await import("./markups");
+      return markupsCommand(rest);
+    }
     default:
       console.error(`Unknown artifacts subcommand: ${sub}`);
       console.error(ARTIFACTS_HELP);
