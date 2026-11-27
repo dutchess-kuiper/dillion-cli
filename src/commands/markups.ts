@@ -51,6 +51,7 @@ export type Markup = {
     prefix?: string;
     suffix?: string;
     figure_id?: string;
+    figure_label?: string;
   };
   body: string | null;
   suggested_text: string | null;
@@ -111,7 +112,7 @@ export function markupGist(m: Markup): string {
     case "highlight":
       return `${quote}: ${oneLine(m.body)}`;
     case "point":
-      return `[figure ${m.anchor.figure_id ?? "?"}]: ${oneLine(m.body)}`;
+      return `[${oneLine(m.anchor.figure_label, 40) || `figure ${m.anchor.figure_id ?? "?"}`}]: ${oneLine(m.body)}`;
     case "ink": {
       const reading = m.ink_reading ? oneLine(m.ink_reading) : "(no reading yet)";
       return m.body ? `ink: ${reading}  (${oneLine(m.body, 60)})` : `ink: ${reading}`;
@@ -155,7 +156,9 @@ export function formatMarkupDetail(m: Markup): string {
   if (a.quote) {
     lines.push(`  quote:    …${a.prefix ?? ""}[${a.quote}]${a.suffix ?? ""}…`);
   }
-  if (a.figure_id) lines.push(`  figure:   ${a.figure_id}`);
+  if (a.figure_id) {
+    lines.push(`  figure:   ${a.figure_label ? `${a.figure_label} (${a.figure_id})` : a.figure_id}`);
+  }
   if (m.kind === "suggestion") {
     lines.push(
       `  suggest:  ${m.suggested_text ? `replace with "${m.suggested_text}"` : "strike out"}`,
